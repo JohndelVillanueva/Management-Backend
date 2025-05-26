@@ -1,0 +1,49 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserType {
+  ADMIN
+  HEAD
+  STAFF
+}
+
+
+model VerificationToken {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  user       User     @relation(fields: [user_id], references: [id])
+  token      String   @unique
+  expires    DateTime
+  createdAt  DateTime @default(now())
+
+  @@map("verification_tokens")
+}
+
+model User {
+  id            Int       @id @default(autoincrement())
+  username      String    @unique
+  email         String    @unique
+  password_hash String
+  user_type     UserType  @default(STAFF)
+  department    String?
+  first_name    String?
+  last_name     String?
+  phone_number  String?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+  last_login    DateTime?
+  is_active     Boolean   @default(true)
+  verificationTokens VerificationToken[]
+
+  @@map("users")
+}

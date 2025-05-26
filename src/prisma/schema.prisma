@@ -1,0 +1,50 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserType {
+  Admin
+  DepartmentHead
+  Staff
+}
+
+model VerificationToken {
+  id        Int      @id @default(autoincrement())
+  user_id   Int
+  user      User     @relation(fields: [user_id], references: [id]) // Added relation
+  token     String   @unique
+  expires   DateTime
+  createdAt DateTime @default(now())
+
+  @@map("verification_tokens")
+}
+
+model User {
+  id                 Int                 @id @default(autoincrement())
+  username           String              @unique
+  email              String              @unique
+  password_hash      String
+  user_type          UserType            @default(Staff)
+  first_name         String?
+  last_name          String?
+  phone_number       String?
+  created_at         DateTime            @default(now())
+  updated_at         DateTime            @updatedAt
+  last_login         DateTime?
+  is_active          Boolean             @default(true)
+  verificationTokens VerificationToken[]
+
+  @@map("users")
+}
