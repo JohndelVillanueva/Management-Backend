@@ -9,10 +9,13 @@ import 'dotenv/config';
 const app = new Hono();
 
 // Middleware
-app.use('*', cors());
+app.use('*',   cors({
+    origin: 'http://localhost:5173', // Specific origin, not '*'
+    credentials: true,               // Important: allow credentials (cookies)
+  }));
 
 // Department Routes
-app.route('/api/departments', departmentRouter);
+app.route('/departments', departmentRouter);
 
 // Auth Routes
 app.route('/auth', authRouter);
