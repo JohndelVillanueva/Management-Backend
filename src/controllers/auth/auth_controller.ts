@@ -87,7 +87,7 @@ export const signupController = async (c: Context) => {
       id: user.id,
       email: user.email,
       userType: user.user_type,
-      isVerified: user.verified ?? false
+      isVerified: user.is_verified ?? false
     });
 
     return c.json(
@@ -235,7 +235,7 @@ export const loginController = async (c: Context) => {
         first_name: true,
         last_name: true,
         is_active: true,
-        verified: true, // Added verification status
+        is_verified: true, // Added verification status
         department: true,
         last_login: true,
       }
@@ -270,7 +270,7 @@ export const loginController = async (c: Context) => {
     }
 
     // 5. Check if user is verified
-    if (!user.verified) {
+    if (!user.is_verified) {
       // Generate verification token
       const verificationToken = crypto.randomBytes(32).toString('hex');
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
@@ -311,7 +311,7 @@ export const loginController = async (c: Context) => {
       user_type: user.user_type,
       name: `${user.first_name || ''} ${user.last_name || ''}`.trim(),
       department: user.department,
-      is_verified: user.verified // Include verification status
+      is_verified: user.is_verified // Include verification status
     };
 
     // 7. Generate JWT token with rememberMe consideration

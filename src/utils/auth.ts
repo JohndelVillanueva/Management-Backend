@@ -69,7 +69,7 @@ export async function verifyUserToken(token: string) {
 
   const updatedUser = await prisma.user.update({
     where: { id: verificationToken.user_id },
-    data: { verified: true }, // Adjust field name if needed
+    data: { is_verified: true }, // Adjust field name if needed
   });
 
   await prisma.verificationToken.delete({ where: { id: verificationToken.id } });

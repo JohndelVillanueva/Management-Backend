@@ -42,7 +42,7 @@ model User {
   created_at    DateTime  @default(now())
   updated_at    DateTime  @updatedAt
   last_login    DateTime?
-  verified      Boolean   @default(false)
+  is_verified      Boolean   @default(false)
   is_active     Boolean   @default(true)
   verificationTokens VerificationToken[]
 
