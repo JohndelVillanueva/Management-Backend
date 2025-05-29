@@ -1,12 +1,14 @@
 import type { Context } from "hono";
-import * as argon2 from 'argon2'
+import * as argon2 from "argon2";
 import prisma from "../../utils/db.js";
-import { 
-  generateToken, 
+import {
+  generateToken,
   verifyPassword,
-  generateVerificationToken 
-} from '../../utils/auth.js';
+  generateVerificationToken,
+} from "../../utils/auth.js";
 import jwt from "jsonwebtoken";
+import { authService } from "../../services/auth.service.js";
+import { emailService } from "../../services/email.service.js";
 import crypto from "crypto";
 
 const mapInputToEnum = {
@@ -22,7 +24,6 @@ function mapUserType(input: string) {
   }
   return upperInput;
 }
-
 
 export const signupController = async (c: Context) => {
   try {
@@ -87,7 +88,7 @@ export const signupController = async (c: Context) => {
       id: user.id,
       email: user.email,
       userType: user.user_type,
-      isVerified: user.is_verified ?? false
+      isVerified: user.is_verified ?? false,
     });
 
     return c.json(
@@ -116,9 +117,9 @@ export const signupController = async (c: Context) => {
 
 //     // 1. Validate input
 //     if (!email || !password) {
-//       return c.json({ 
+//       return c.json({
 //         success: false,
-//         message: 'Email and password are required' 
+//         message: 'Email and password are required'
 //       }, 400);
 //     }
 
@@ -159,7 +160,7 @@ export const signupController = async (c: Context) => {
 //       user.password_hash,  // stored hash
 //       password             // plaintext password
 //     );
-    
+
 //     if (!isPasswordValid) {
 //       return c.json({
 //         success: false,
@@ -179,9 +180,9 @@ export const signupController = async (c: Context) => {
 
 //     // 6. Generate JWT token with rememberMe consideration
 //     const token = jwt.sign(
-//       { 
-//         userId: user.id, 
-//         ...userData 
+//       {
+//         userId: user.id,
+//         ...userData
 //       },
 //       process.env.JWT_SECRET || 'your-secret-key-here',
 //       { expiresIn: rememberMe ? '7d' : '2h' }
@@ -214,16 +215,18 @@ export const signupController = async (c: Context) => {
 export const loginController = async (c: Context) => {
   try {
     const { email, password, rememberMe } = await c.req.json();
+    console.log("Login attempt for email:", email);
 
     // 1. Validate input
     if (!email || !password) {
-      return c.json({ 
-        success: false,
-        message: 'Email and password are required' 
-      }, 400);
+      return c.json(
+        { success: false, message: "Email and password are required" },
+        400
+      );
     }
 
     // 2. Find user by email
+    console.log("Looking for user in database...");
     const user = await prisma.user.findUnique({
       where: { email },
       select: {
@@ -235,72 +238,98 @@ export const loginController = async (c: Context) => {
         first_name: true,
         last_name: true,
         is_active: true,
-        is_verified: true, // Added verification status
+        is_verified: true,
         department: true,
         last_login: true,
-      }
+        verificationTokens: {
+          select: { token: true, expires: true },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
+      },
     });
+
+    console.log(
+      "User found:",
+      user
+        ? {
+            id: user.id,
+            is_active: user.is_active,
+            is_verified: user.is_verified,
+          }
+        : "No user found"
+    );
 
     // 3. Check if user exists and is active
     if (!user) {
-      return c.json({
-        success: false,
-        message: 'Invalid credentials'
-      }, 401);
+      console.log("User not found for email:", email); // Add this
+      return c.json({ success: false, message: "Invalid credentials" }, 401);
     }
 
     if (!user.is_active) {
-      return c.json({
-        success: false,
-        message: 'Account is deactivated. Please contact administrator.'
-      }, 403);
-    }
-
-    // 4. Verify password using Argon2
-    const isPasswordValid = await argon2.verify(
-      user.password_hash,
-      password
-    );
-    
-    if (!isPasswordValid) {
-      return c.json({
-        success: false,
-        message: 'Invalid credentials'
-      }, 401);
-    }
-
-    // 5. Check if user is verified
-    if (!user.is_verified) {
-      // Generate verification token
-      const verificationToken = crypto.randomBytes(32).toString('hex');
-      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-      
-      // Store verification token
-      await prisma.verificationToken.upsert({
-        where: { token: verificationToken },
-        update: { 
-          token: verificationToken,
-          expires: expiresAt,
-          createdAt: new Date() 
+      console.log("User account inactive:", email);
+      return c.json(
+        {
+          success: false,
+          message: "Account is deactivated. Please contact administrator.",
         },
-        create: {
-          user_id: user.id,
-          token: verificationToken,
-          expires: expiresAt
-        }
+        403
+      );
+    }
+
+    // 4. Verify password
+    console.log("Verifying password..."); // Add this
+    const isPasswordValid = await argon2.verify(user.password_hash, password);
+    if (!isPasswordValid) {
+      console.log("User not verified - starting verification flow"); // Add this
+      return c.json({ success: false, message: "Invalid credentials" }, 401);
+    }
+
+    // 5. Handle unverified users
+    if (!user.is_verified) {
+      console.log("Unverified user flow started for:", user.email);
+
+      const existingToken = user.verificationTokens[0];
+      const isTokenValid =
+        existingToken && new Date(existingToken.expires) > new Date();
+
+      console.log("Token check:", {
+        hasExistingToken: !!existingToken,
+        isTokenValid,
+        tokenExpiry: existingToken?.expires,
       });
 
-      // TODO: Send verification email here with the token
-      // Example: await sendVerificationEmail(user.email, verificationToken);
+      const verificationToken = isTokenValid
+        ? existingToken.token
+        : await authService.generateAndStoreToken(user.id);
 
-      return c.json({
-        success: false,
-        message: 'Email not verified',
-        code: 'EMAIL_NOT_VERIFIED',
-        userId: user.id,
-        // Don't return the actual token in production - just for demo
-        resendToken: process.env.NODE_ENV === 'development' ? verificationToken : undefined
-      }, 403);
+      console.log("Using verification token:", verificationToken);
+
+      try {
+        console.log("Attempting to send verification email to:", user.email);
+        await emailService.sendVerificationEmail(user.email, verificationToken, String(user.id));
+        console.log("Verification email sent successfully");
+
+        return c.json(
+          {
+            success: false,
+            code: "USER_NOT_VERIFIED",
+            message: "Account not verified. Verification email sent.",
+            email: user.email,
+          },
+          403
+        );
+      } catch (emailError) {
+        console.error("FAILED to send verification email:", emailError);
+        return c.json(
+          {
+            success: false,
+            code: "EMAIL_SEND_FAILED",
+            message: "Account not verified. Failed to send verification email.",
+          },
+          403
+        );
+      }
     }
 
     // 6. Prepare user data for token
@@ -309,49 +338,229 @@ export const loginController = async (c: Context) => {
       email: user.email,
       username: user.username,
       user_type: user.user_type,
-      name: `${user.first_name || ''} ${user.last_name || ''}`.trim(),
+      name: `${user.first_name || ""} ${user.last_name || ""}`.trim(),
       department: user.department,
-      is_verified: user.is_verified // Include verification status
+      is_verified: user.is_verified,
     };
 
-    // 7. Generate JWT token with rememberMe consideration
+    // 7. Generate JWT token
     const token = jwt.sign(
-      { 
-        userId: user.id, 
-        ...userData 
-      },
-      process.env.JWT_SECRET || 'your-secret-key-here',
-      { expiresIn: rememberMe ? '7d' : '2h' }
+      { userId: user.id, ...userData },
+      process.env.JWT_SECRET || "your-secret-key-here",
+      { expiresIn: rememberMe ? "7d" : "2h" }
     );
 
     // 8. Update last login timestamp
     await prisma.user.update({
       where: { id: user.id },
-      data: { last_login: new Date() }
+      data: { last_login: new Date() },
     });
 
-    // 9. Return success response with token
+    // 9. Return success response
     return c.json({
       success: true,
-      message: 'Login successful',
+      message: "Login successful",
       token,
       user: userData,
       lastLogin: user.last_login,
     });
-
   } catch (error) {
-    console.error('Login error:', error);
-    return c.json({
-      success: false,
-      message: 'An error occurred during login'
-    }, 500);
+    console.error("Login error:", error);
+    return c.json(
+      { success: false, message: "An error occurred during login" },
+      500
+    );
   }
 };
 
-
 export const logoutController = async (c: Context) => {
-  // Clear the JWT cookie (or any auth-related cookie)
-  c.header('Set-Cookie', 'token=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0')
+  // Clear the JWT cookie
+  c.header(
+    "Set-Cookie",
+    "token=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT"
+    // Add 'Domain=yourdomain.com' if needed
+  );
 
-  return c.json({ message: 'Logged out successfully' })
-}
+  return c.json({ message: "Logged out successfully" });
+};
+
+export const verifyEmailController = async (c: Context) => {
+  try {
+    const { token } = await c.req.json();
+
+    // 1. Find the token in the database
+    const verificationToken = await prisma.verificationToken.findUnique({
+      where: { token },
+      include: { user: true },
+    });
+
+    if (!verificationToken) {
+      return c.json(
+        {
+          success: false,
+          message: "Invalid verification token",
+        },
+        400
+      );
+    }
+
+    // 2. Check token expiration
+    if (verificationToken.expires < new Date()) {
+      await prisma.verificationToken.delete({
+        where: { id: verificationToken.id },
+      });
+
+      return c.json(
+        {
+          success: false,
+          message: "Verification token expired",
+        },
+        400
+      );
+    }
+
+    // 3. Mark user as verified (only if not already verified)
+    if (!verificationToken.user.is_verified) {
+      await prisma.user.update({
+        where: { id: verificationToken.user_id },
+        data: { is_verified: true },
+      });
+    }
+
+    // 4. Delete the token after use
+    await prisma.verificationToken.delete({
+      where: { id: verificationToken.id },
+    });
+
+    // 5. Prepare user data for the JWT
+    const userData = {
+      id: verificationToken.user.id,
+      email: verificationToken.user.email,
+      username: verificationToken.user.username,
+      user_type: verificationToken.user.user_type,
+      name: `${verificationToken.user.first_name || ""} ${
+        verificationToken.user.last_name || ""
+      }`.trim(),
+      department: verificationToken.user.department,
+      is_verified: true,
+    };
+
+    // 6. Generate JWT token
+    const authToken = jwt.sign(
+      { userId: userData.id, ...userData },
+      process.env.JWT_SECRET || "your-secret-key-here",
+      { expiresIn: "2h" }
+    );
+
+    return c.json({
+      success: true,
+      message: "Email verified successfully",
+      token: authToken,
+      user: {
+        id: userData.id,
+        email: userData.email,
+        username: userData.username,
+        firstName: verificationToken.user.first_name,
+        lastName: verificationToken.user.last_name,
+        userType: userData.user_type,
+        department: userData.department,
+        isVerified: true,
+      },
+    });
+  } catch (error) {
+    console.error("Verification error:", error);
+    return c.json(
+      {
+        success: false,
+        message: "Email verification failed",
+      },
+      500
+    );
+  }
+};
+
+export const resendVerification = async (c: Context) => {
+  try {
+    const { email } = await c.req.json();
+
+    // 1. Fetch user by email
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    if (!user) {
+      return c.json({ success: false, message: "User not found" }, 404);
+    }
+
+    if (user.is_verified) {
+      return c.json({ success: false, message: "Email already verified" }, 400);
+    }
+
+    // 2. Delete existing tokens for user (cleanup)
+    await prisma.verificationToken.deleteMany({
+      where: { user_id: user.id },
+    });
+
+    // 3. Generate a new token
+    const verificationToken = crypto.randomBytes(32).toString("hex");
+
+    // 4. Save new token
+    await prisma.verificationToken.create({
+      data: {
+        token: verificationToken,
+        user_id: user.id,
+        expires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+      },
+    });
+
+    // 5. Send email
+    await emailService.sendVerificationEmail(
+      user.email,
+      verificationToken,
+      String(user.id)
+    );
+
+    return c.json({ success: true, message: "Verification email resent" });
+  } catch (error) {
+    console.error("Resend verification error:", error);
+    return c.json(
+      { success: false, message: "Failed to resend verification email" },
+      500
+    );
+  }
+};
+
+export const forgotPassword = async (c: Context) => {
+  try {
+    const { email } = await c.req.json();
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    const resetToken = generateToken({
+      id: user.id,
+      email: user.email,
+      userType: user.user_type,
+      isVerified: user.is_verified ?? false,
+    });
+
+    await prisma.passwordResetToken.upsert({
+      where: { user_id: user.id },
+      update: {
+        token: resetToken,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
+      },
+      create: {
+        token: resetToken,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        user_id: user.id,
+      },
+    });
+
+    await emailService.sendPasswordResetEmail(email, resetToken);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Password reset error:", error);
+    return c.json({ error: "Failed to send password reset email" }, 500);
+  }
+};
