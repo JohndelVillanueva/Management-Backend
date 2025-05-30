@@ -9,6 +9,6 @@ export const config = {
     fromName:process.env.EMAIL_FROM_NAME,              // sender name
   },
   app: {
-    baseUrl: process.env.VITE_API_URL,       // your application's base URL
+    baseUrl: process.env.FRONTEND_BASE_URL,       // your application's base URL
   },
 };

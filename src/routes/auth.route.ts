@@ -1,9 +1,10 @@
 import { Hono } from 'hono';
-import { signupController, logoutController , loginController,resendVerification,forgotPassword } from '../controllers/auth/auth_controller.js';
+import { signupController, logoutController , loginController,resendVerification,forgotPassword, verifyEmailController } from '../controllers/auth/auth_controller.js';
 import { validateSignup } from '../middlewares/middleware.js';
 
 const authRouter = new Hono();
 
+authRouter.get('/verify-email', verifyEmailController); // Assuming you have a verifyEmailController defined
 authRouter.post('/signup', validateSignup, signupController);
 authRouter.post('/login', loginController); // Assuming you have a loginController defined
 authRouter.post('/logout', logoutController); // Assuming you have a logoutController defined

@@ -307,7 +307,11 @@ export const loginController = async (c: Context) => {
 
       try {
         console.log("Attempting to send verification email to:", user.email);
-        await emailService.sendVerificationEmail(user.email, verificationToken, String(user.id));
+        await emailService.sendVerificationEmail(
+          user.email,
+          verificationToken,
+          String(user.id)
+        );
         console.log("Verification email sent successfully");
 
         return c.json(
@@ -386,82 +390,73 @@ export const logoutController = async (c: Context) => {
 
 export const verifyEmailController = async (c: Context) => {
   try {
-    const { token } = await c.req.json();
+     const { token, userId } = c.req.query(); // Get both params
+if (!token || !userId) {
+      return c.json(
+        { success: false, message: "Token and userId are required" },
+        400
+      );
+    }
 
-    // 1. Find the token in the database
     const verificationToken = await prisma.verificationToken.findUnique({
       where: { token },
       include: { user: true },
     });
 
-    if (!verificationToken) {
+    if (
+      !verificationToken ||
+      verificationToken.user_id !== Number(userId)
+    ) {
       return c.json(
-        {
-          success: false,
-          message: "Invalid verification token",
-        },
+        { success: false, message: "Invalid verification token" },
         400
       );
     }
+    
 
-    // 2. Check token expiration
     if (verificationToken.expires < new Date()) {
-      await prisma.verificationToken.delete({
-        where: { id: verificationToken.id },
-      });
-
-      return c.json(
-        {
-          success: false,
-          message: "Verification token expired",
-        },
-        400
-      );
+      await prisma.verificationToken.delete({ where: { id: verificationToken.id } });
+      return c.json({ success: false, message: "Verification token expired" }, 400);
     }
 
-    // 3. Mark user as verified (only if not already verified)
     if (!verificationToken.user.is_verified) {
       await prisma.user.update({
         where: { id: verificationToken.user_id },
         data: { is_verified: true },
       });
+      console.log(`✅ User ${verificationToken.user_id} marked as verified`);
+    } else {
+      console.log(`ℹ️ User ${verificationToken.user_id} already verified`);
     }
 
-    // 4. Delete the token after use
-    await prisma.verificationToken.delete({
-      where: { id: verificationToken.id },
-    });
+    await prisma.verificationToken.delete({ where: { id: verificationToken.id } });
 
-    // 5. Prepare user data for the JWT
-    const userData = {
-      id: verificationToken.user.id,
-      email: verificationToken.user.email,
-      username: verificationToken.user.username,
-      user_type: verificationToken.user.user_type,
-      name: `${verificationToken.user.first_name || ""} ${
-        verificationToken.user.last_name || ""
-      }`.trim(),
-      department: verificationToken.user.department,
-      is_verified: true,
-    };
+    const userData = verificationToken.user;
 
-    // 6. Generate JWT token
-    const authToken = jwt.sign(
-      { userId: userData.id, ...userData },
-      process.env.JWT_SECRET || "your-secret-key-here",
+    const tokenJWT = jwt.sign(
+      {
+        userId: userData.id,
+        email: userData.email,
+        username: userData.username,
+        user_type: userData.user_type,
+        name: `${userData.first_name || ""} ${userData.last_name || ""}`.trim(),
+        department: userData.department,
+        is_verified: true,
+      },
+      process.env.JWT_SECRET || "your-secret-key",
       { expiresIn: "2h" }
     );
 
     return c.json({
       success: true,
       message: "Email verified successfully",
-      token: authToken,
+      token: tokenJWT,
       user: {
         id: userData.id,
         email: userData.email,
         username: userData.username,
-        firstName: verificationToken.user.first_name,
-        lastName: verificationToken.user.last_name,
+        firstName: userData.first_name,
+        lastName: userData.last_name,
         userType: userData.user_type,
         department: userData.department,
         isVerified: true,
@@ -469,15 +464,11 @@ export const verifyEmailController = async (c: Context) => {
     });
   } catch (error) {
     console.error("Verification error:", error);
-    return c.json(
-      {
-        success: false,
-        message: "Email verification failed",
-      },
-      500
-    );
+    return c.json({ success: false, message: "Email verification failed" }, 500);
   }
 };
+
+
 
 export const resendVerification = async (c: Context) => {
   try {
