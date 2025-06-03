@@ -26,6 +26,7 @@ const transporter = nodemailer.createTransport({
   debug: process.env.NODE_ENV !== "production",
 });
 
+
 // Add connection verification
 transporter.verify((error) => {
   if (error) {

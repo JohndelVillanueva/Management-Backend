@@ -390,8 +390,8 @@ export const logoutController = async (c: Context) => {
 
 export const verifyEmailController = async (c: Context) => {
   try {
-     const { token, userId } = c.req.query(); // Get both params
-if (!token || !userId) {
+    const { token, userId } = c.req.query(); // Get both params
+    if (!token || !userId) {
       return c.json(
         { success: false, message: "Token and userId are required" },
         400
@@ -403,20 +403,21 @@ if (!token || !userId) {
       include: { user: true },
     });
 
-    if (
-      !verificationToken ||
-      verificationToken.user_id !== Number(userId)
-    ) {
+    if (!verificationToken || verificationToken.user_id !== Number(userId)) {
       return c.json(
         { success: false, message: "Invalid verification token" },
         400
       );
     }
-    
 
     if (verificationToken.expires < new Date()) {
-      await prisma.verificationToken.delete({ where: { id: verificationToken.id } });
-      return c.json({ success: false, message: "Verification token expired" }, 400);
+      await prisma.verificationToken.delete({
+        where: { id: verificationToken.id },
+      });
+      return c.json(
+        { success: false, message: "Verification token expired" },
+        400
+      );
     }
 
     if (!verificationToken.user.is_verified) {
@@ -429,7 +430,9 @@ if (!token || !userId) {
       console.log(`ℹ️ User ${verificationToken.user_id} already verified`);
     }
 
-    await prisma.verificationToken.delete({ where: { id: verificationToken.id } });
+    await prisma.verificationToken.delete({
+      where: { id: verificationToken.id },
+    });
 
     const userData = verificationToken.user;
 
@@ -464,11 +467,12 @@ if (!token || !userId) {
     });
   } catch (error) {
     console.error("Verification error:", error);
-    return c.json({ success: false, message: "Email verification failed" }, 500);
+    return c.json(
+      { success: false, message: "Email verification failed" },
+      500
+    );
   }
 };
-
-
 
 export const resendVerification = async (c: Context) => {
   try {
