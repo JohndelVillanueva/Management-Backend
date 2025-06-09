@@ -559,3 +559,41 @@ export const forgotPassword = async (c: Context) => {
     return c.json({ error: "Failed to send password reset email" }, 500);
   }
 };
+
+export const verifyTokenController = async (c: Context) => {
+  const authHeader = c.req.header('Authorization');
+  
+  if (!authHeader?.startsWith('Bearer ')) {
+    return c.json({ isValid: false, message: "No token provided" }, 401);
+  }
+
+  const token = authHeader.split(' ')[1];
+  
+  try {
+    const decoded = jwt.verify(
+      token, 
+      process.env.JWT_SECRET || 'your-secret-key-here'
+    ) as { userId: string };
+    
+    // Optional: Verify user still exists in database
+    const user = await prisma.user.findUnique({
+      where: { id: Number(decoded.userId) },
+      select: { id: true, is_active: true, is_verified: true }
+    });
+
+    if (!user || !user.is_active) {
+      return c.json({ isValid: false, message: "User not active" }, 401);
+    }
+
+    return c.json({ 
+      isValid: true,
+      user: {
+        id: user.id,
+        is_verified: user.is_verified
+      }
+    });
+    
+  } catch (err) {
+    return c.json({ isValid: false, message: "Invalid token" }, 401);
+  }
+};
