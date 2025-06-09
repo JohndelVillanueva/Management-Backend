@@ -10,7 +10,7 @@ interface UserPayload {
   id: string | number;
   email: string;
   userType: 'ADMIN' | 'HEAD' | 'STAFF';
-  isVerified?: boolean;
+  is_verified?: boolean;
 }
 
 // Generate JWT token
@@ -20,7 +20,7 @@ export function generateToken(user: UserPayload) {
       id: user.id,
       email: user.email,
       userType: user.userType,
-      isVerified: user.isVerified || false
+      isVerified: user.is_verified || false
     },
     JWT_SECRET,
     { expiresIn: '7d' }
@@ -89,7 +89,7 @@ export async function checkVerification(c: Context, next: Next) {
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as UserPayload;
 
-    if (!decoded.isVerified) {
+    if (!decoded.is_verified) {
       return c.json(
         {
           error: 'Email not verified',
