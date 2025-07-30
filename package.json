@@ -16,6 +16,7 @@
     "jose": "^6.0.11",
     "jsonwebtoken": "^9.0.2",
     "nodemailer": "^7.0.3",
+    "react-modal": "^3.16.3",
     "zod": "^3.25.28"
   },
   "devDependencies": {

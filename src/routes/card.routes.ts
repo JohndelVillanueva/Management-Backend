@@ -1,0 +1,14 @@
+import { Hono } from 'hono';
+import { createCard, getAllCards, getCardById } from '../controllers/cards/CardController.js';
+import { createSubmission, getSubmissionsByCard,getFilesBySubmission } from '../controllers/cards/SubmissionController.js';
+
+const cardRouter = new Hono()
+
+// Corrected routes - no duplicate /cards prefix
+// .get('/:id/submissions', getSubmissionsByCard)
+.post('/', createCard)
+.get('/', getAllCards)
+.get('/:id', getCardById)
+// .post('/:id/submissions', createSubmission)
+
+export default cardRouter;

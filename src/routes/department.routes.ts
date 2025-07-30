@@ -1,18 +1,27 @@
-// // app/routes/departmentRoutes.ts
-// import { Hono } from 'hono';
-// import { cors } from 'hono/cors';
-// import { 
-//   getDepartments
-// //   createDepartmentHandler 
-// } from '../controllers/department/index.js';
+import { Hono } from 'hono';
+import { 
+  getAllDepartments, 
+  getDepartmentById, 
+  createDepartment, 
+  updateDepartment, 
+  deleteDepartment 
+} from '../controllers/department/departmentController.js';
 
-// const departmentRoutes = new Hono();
+const departmentRouter = new Hono();
 
-// // Middleware
-// departmentRoutes.use('*', cors());
+// Get all departments
+departmentRouter.get('/', getAllDepartments);
 
-// // Routes
-// departmentRoutes.get('/getDepartment', getDepartments);
-// // departmentRoutes.post('/', createDepartmentHandler);
+// Get single department by ID
+departmentRouter.get('/:id', getDepartmentById);
 
-// export default departmentRoutes;
+// Create new department
+departmentRouter.post('/', createDepartment);
+
+// Update department
+departmentRouter.put('/:id', updateDepartment);
+
+// Delete department
+departmentRouter.delete('/:id', deleteDepartment);
+
+export default departmentRouter; 

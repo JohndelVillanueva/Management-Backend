@@ -76,4 +76,18 @@ departmentRouter.get('/', async (c) => {
 //   }
 // });
 
+// Create a new department
+departmentRouter.post('/', async (c) => {
+  try {
+    const { name, code } = await c.req.json();
+    if (!name || !code) {
+      return c.json({ success: false, message: 'Name and code are required.' }, 400);
+    }
+    const department = await prisma.department.create({ data: { name, code } });
+    return c.json({ success: true, data: department }, 201);
+  } catch (error) {
+    return c.json({ success: false, message: 'Failed to add department', error: error instanceof Error ? error.message : 'Unknown error' }, 500);
+  }
+});
+
 export { departmentRouter };

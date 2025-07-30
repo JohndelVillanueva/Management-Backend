@@ -38,6 +38,38 @@ export const signupController = async (c: Context) => {
       username,
       department, // Added here
     } = await c.req.json();
+
+    console.log("Signup request data:", {
+      firstName,
+      lastName,
+      email,
+      username,
+      userType,
+      department,
+      hasPassword: !!password,
+      hasConfirmPassword: !!confirmPassword
+    });
+
+    // Validate required fields
+    if (!firstName || !lastName || !email || !password || !confirmPassword || !username || !userType) {
+      return c.json(
+        {
+          error: "Validation failed",
+          details: "All required fields must be provided",
+          missing: {
+            firstName: !firstName,
+            lastName: !lastName,
+            email: !email,
+            password: !password,
+            confirmPassword: !confirmPassword,
+            username: !username,
+            userType: !userType
+          }
+        },
+        400
+      );
+    }
+
     const prismaUserType = mapUserType(userType);
 
     // Validate userType matches enum
@@ -56,6 +88,11 @@ export const signupController = async (c: Context) => {
       return c.json({ error: "Passwords do not match" }, 400);
     }
 
+    // Validate password length
+    if (password.length < 8) {
+      return c.json({ error: "Password must be at least 8 characters long" }, 400);
+    }
+
     // Check if user exists
     const existingUser = await prisma.user.findFirst({
       where: {
@@ -71,6 +108,17 @@ export const signupController = async (c: Context) => {
     const hashedPassword = await argon2.hash(password);
 
     // Create user with department
+    let departmentConnect = undefined;
+    if (typeof department === 'number') {
+      departmentConnect = { connect: { id: department } };
+    } else if (typeof department === 'string') {
+      const dept = await prisma.department.findFirst({ where: { name: department } });
+      if (!dept) {
+        return c.json({ error: 'Department not found' }, 400);
+      }
+      departmentConnect = { connect: { id: dept.id } };
+    }
+
     const user = await prisma.user.create({
       data: {
         username,
@@ -80,7 +128,7 @@ export const signupController = async (c: Context) => {
         last_name: lastName,
         phone_number: phoneNumber,
         user_type: userType,
-        department, // Included here
+        department: departmentConnect,
       },
     });
 
@@ -99,14 +147,14 @@ export const signupController = async (c: Context) => {
         email: user.email,
         username: user.username,
         userType: user.user_type,
-        department,
+        departmentId: user.departmentId,
         token,
       },
       201
     );
   } catch (error) {
-    console.error(error);
-    return c.json({ error: "Server error" }, 500);
+    console.error("Signup error:", error);
+    return c.json({ error: "Server error", details: error instanceof Error ? error.message : "Unknown error" }, 500);
   }
 };
 
@@ -241,7 +289,8 @@ export const loginController = async (c: Context) => {
       username: user.username,
       user_type: user.user_type,
       name: `${user.first_name || ""} ${user.last_name || ""}`.trim(),
-      department: user.department,
+      departmentId: user.department?.id ?? null,
+      departmentName: user.department?.name ?? null,
       is_verified: user.is_verified,
     };
 
@@ -526,3 +575,20 @@ export async function getCurrentUser(c: Context) {
     return c.json({ error: 'Invalid or expired token' }, 401);
   }
 }
+
+export const getHeadUsers = async (c: Context) => {
+  try {
+    const heads = await prisma.user.findMany({
+      where: { user_type: 'HEAD' },
+      select: {
+        id: true,
+        first_name: true,
+        last_name: true,
+        email: true,
+      },
+    });
+    return c.json(heads);
+  } catch (error) {
+    return c.json({ error: 'Failed to fetch head users' }, 500);
+  }
+};

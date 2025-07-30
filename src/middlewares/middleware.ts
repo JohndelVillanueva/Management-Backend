@@ -7,7 +7,7 @@ export const signupSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
   confirmPassword: z.string().min(8),
-  department: z.string().min(2),
+  department: z.string().min(2).nullable().optional(),
   userType: z.enum(['ADMIN', 'HEAD', 'STAFF']),
 });
 

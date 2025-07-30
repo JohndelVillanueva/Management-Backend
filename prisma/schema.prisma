@@ -17,6 +17,25 @@ enum UserType {
   STAFF
 }
 
+model Card {
+  id            Int         @id @default(autoincrement())
+  title         String
+  description   String?
+  departmentId  Int
+  department    Department  @relation(fields: [departmentId], references: [id])
+  status        String      @default("active")  // active, archived, deleted
+  isPublic      Boolean     @default(false)     // Public/private card
+  viewCount     Int         @default(0)         // Track view statistics
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  submissions   Submission[]
+  files         File[]      // Now properly related
+
+  @@map("cards")
+  @@index([departmentId])
+  @@index([status])
+}
+
 
 model VerificationToken {
   id         Int      @id @default(autoincrement())
@@ -39,16 +58,38 @@ model PasswordResetToken {
   @@map("password_reset_tokens")
 }
 
+model Activity {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+  action      String   // upload, download, view, delete, etc.
+  resourceType String  // file, submission, card, etc.
+  resourceId  Int      // ID of the resource being acted upon
+  description String?  // Human-readable description
+  ipAddress   String?  // IP address for security tracking
+  userAgent   String?  // Browser/device info
+  createdAt   DateTime @default(now())
+
+  @@map("activities")
+  @@index([userId])
+  @@index([action])
+  @@index([resourceType])
+  @@index([createdAt])
+}
+
 model User {
   id            Int       @id @default(autoincrement())
   username      String    @unique
   email         String    @unique
   password_hash String
   user_type     UserType  @default(STAFF)
-  department    String?
+  departmentId  Int?
+  department    Department? @relation(fields: [departmentId], references: [id])
   first_name    String?
   last_name     String?
   phone_number  String?
+  avatar        String?   // Profile picture URL
+  bio           String?   // User bio/description
   created_at    DateTime  @default(now())
   updated_at    DateTime  @updatedAt
   last_login    DateTime?
@@ -56,17 +97,74 @@ model User {
   is_active     Boolean   @default(true)
   passwordResetToken PasswordResetToken?
   verificationTokens VerificationToken[]
+  submissions Submission[]
+  files File[]
+  activities Activity[]
 
   @@map("users")
+  @@index([user_type])
+  @@index([is_active])
+  @@index([departmentId])
 }
 
 model Department {
   id        Int      @id @default(autoincrement())
   name      String
   code      String   @unique
+  description String?
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
-  
+  submissions Submission[]
+  cards     Card[]
+  users     User[]
   @@map("departments")
+}
+
+model Submission {
+  id           Int        @id @default(autoincrement())
+  title        String
+  description  String?
+  type         String
+  link         String
+  status       String     @default("active")  // active, archived, deleted
+  isPublic     Boolean    @default(false)     // Public/private submission
+  viewCount    Int        @default(0)         // Track view statistics
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  userId       Int
+  cardId       Int
+  departmentId Int?
+  user         User       @relation(fields: [userId], references: [id])
+  card         Card       @relation(fields: [cardId], references: [id])
+  department   Department? @relation(fields: [departmentId], references: [id])
+
+  @@map("submissions")
+  @@index([cardId])
+  @@index([userId])
+  @@index([departmentId])
+  @@index([status])
+}
+
+model File {
+  id          Int      @id @default(autoincrement())
+  name        String
+  originalName String  // Original filename before upload
+  type        String
+  mimeType    String?  // MIME type for better file handling
+  size        Int?
+  path        String
+  extension   String?  // File extension
+  isPublic    Boolean  @default(false)  // Public/private file access
+  downloadCount Int    @default(0)      // Track download statistics
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  cardId      Int
+  card        Card     @relation(fields: [cardId], references: [id])
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@map("files")
+  @@index([cardId])
+  @@index([userId])
 }
 
