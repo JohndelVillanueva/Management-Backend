@@ -4,24 +4,27 @@ import {
   getDepartmentById, 
   createDepartment, 
   updateDepartment, 
-  deleteDepartment 
+  deleteDepartment,
+  getDepartmentCards
 } from '../controllers/department/departmentController.js';
 
-const departmentRouter = new Hono();
+const departmentRouter = new Hono()
 
 // Get all departments
-departmentRouter.get('/', getAllDepartments);
+.get('/', getAllDepartments)
 
 // Get single department by ID
-departmentRouter.get('/:id', getDepartmentById);
+.get('/:id', getDepartmentById)
 
 // Create new department
-departmentRouter.post('/', createDepartment);
+.post('/', createDepartment)
 
 // Update department
-departmentRouter.put('/:id', updateDepartment);
+.put('/:id', updateDepartment)
 
 // Delete department
-departmentRouter.delete('/:id', deleteDepartment);
+.delete('/:id', deleteDepartment)
+
+ .get('/:id/cards', getDepartmentCards) // Add this new route
 
 export default departmentRouter; 

@@ -30,6 +30,8 @@ model Card {
   updatedAt     DateTime    @updatedAt
   submissions   Submission[]
   files         File[]      // Now properly related
+  headId        Int?        // <-- Add this line
+  head          User?       @relation(fields: [headId], references: [id])
 
   @@map("cards")
   @@index([departmentId])
@@ -100,6 +102,7 @@ model User {
   submissions Submission[]
   files File[]
   activities Activity[]
+  cards Card[]
 
   @@map("users")
   @@index([user_type])

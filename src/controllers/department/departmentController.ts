@@ -36,6 +36,87 @@ export const getAllDepartments = async (c: Context) => {
   }
 };
 
+export const getDepartmentCards = async (c: Context) => {
+  try {
+    // Get user from JWT middleware
+    const user = c.get('user');
+    
+    if (!user) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    // For department heads - get cards from their department
+    if (user.user_type === 'HEAD') {
+      if (!user.departmentId) {
+        return c.json({ error: 'No department assigned' }, 400);
+      }
+
+      const cards = await prisma.card.findMany({
+        where: {
+          departmentId: user.departmentId,
+          status: 'active'
+        },
+        include: {
+          department: true,
+          files: true
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+
+      return c.json(cards);
+    }
+
+    // For staff - get cards from their department
+    if (user.user_type === 'STAFF') {
+      if (!user.departmentId) {
+        return c.json({ error: 'No department assigned' }, 400);
+      }
+
+      const cards = await prisma.card.findMany({
+        where: {
+          departmentId: user.departmentId,
+          status: 'active'
+        },
+        include: {
+          department: true,
+          files: true
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+
+      return c.json(cards);
+    }
+
+    // For admin - get all active cards
+    if (user.user_type === 'ADMIN') {
+      const cards = await prisma.card.findMany({
+        where: {
+          status: 'active'
+        },
+        include: {
+          department: true,
+          files: true
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+
+      return c.json(cards);
+    }
+
+    return c.json({ error: 'Unauthorized access' }, 403);
+
+  } catch (error) {
+    console.error('Error fetching department cards:', error);
+    return c.json({ error: 'Failed to fetch department cards' }, 500);
+  }
+};
+
 // Get single department by IDz`
 export const getDepartmentById = async (c: Context) => {
   try {
