@@ -10,6 +10,9 @@ import jwt from "jsonwebtoken";
 import { authService } from "../../services/auth.service.js";
 import { emailService } from "../../services/email.service.js";
 import crypto from "crypto";
+import path from "path";
+import fs from "fs";
+import { Buffer } from "buffer";
 
 const mapInputToEnum = {
   ADMIN: "ADMIN",
@@ -37,6 +40,7 @@ export const signupController = async (c: Context) => {
       phoneNumber,
       username,
       department, // Added here
+      avatar,
     } = await c.req.json();
 
     console.log("Signup request data:", {
@@ -119,6 +123,31 @@ export const signupController = async (c: Context) => {
       departmentConnect = { connect: { id: dept.id } };
     }
 
+    // Optional avatar processing (accept data URL or URL)
+    let avatarUrl: string | undefined = undefined;
+    try {
+      if (typeof avatar === 'string' && avatar.length > 0) {
+        if (avatar.startsWith('data:image/')) {
+          // Handle data URL upload to local filesystem
+          const [meta, base64Data] = avatar.split(',');
+          const mimeMatch = meta.match(/data:(.*?);base64/);
+          const mimeType = mimeMatch?.[1] || 'image/png';
+          const extension = mimeType.split('/')[1] || 'png';
+          const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`;
+          const buffer = Buffer.from(base64Data, 'base64');
+          const uploadDir = path.join(process.cwd(), 'uploads', 'avatars');
+          fs.mkdirSync(uploadDir, { recursive: true });
+          const filePath = path.join(uploadDir, uniqueName);
+          fs.writeFileSync(filePath, buffer);
+          avatarUrl = `/uploads/avatars/${uniqueName}`;
+        } else if (avatar.startsWith('http://') || avatar.startsWith('https://') || avatar.startsWith('/uploads/')) {
+          avatarUrl = avatar;
+        }
+      }
+    } catch (e) {
+      console.warn('Avatar processing failed, continuing without avatar:', e);
+    }
+
     const user = await prisma.user.create({
       data: {
         username,
@@ -129,6 +158,7 @@ export const signupController = async (c: Context) => {
         phone_number: phoneNumber,
         user_type: userType,
         department: departmentConnect,
+        avatar: avatarUrl,
       },
     });
 
@@ -139,6 +169,13 @@ export const signupController = async (c: Context) => {
       is_verified: user.is_verified ?? false,
     });
 
+    const origin = new URL(c.req.url).origin;
+    const toAbsolute = (p?: string | null) => {
+      if (!p) return null;
+      if (p.startsWith('http://') || p.startsWith('https://') || p.startsWith('data:')) return p;
+      return `${origin}${p.startsWith('/') ? '' : '/'}${p}`;
+    };
+
     return c.json(
       {
         id: user.id,
@@ -148,6 +185,7 @@ export const signupController = async (c: Context) => {
         username: user.username,
         userType: user.user_type,
         departmentId: user.departmentId,
+        avatar: toAbsolute(user.avatar ?? null),
         token,
       },
       201
@@ -187,6 +225,7 @@ export const loginController = async (c: Context) => {
         is_verified: true,
         department: true,
         last_login: true,
+        avatar: true,
         verificationTokens: {
           select: { token: true, expires: true },
           orderBy: { createdAt: "desc" },
@@ -283,6 +322,13 @@ export const loginController = async (c: Context) => {
     }
 
     // 6. Prepare user data for token
+    const origin = new URL(c.req.url).origin;
+    const toAbsolute = (p?: string | null) => {
+      if (!p) return null;
+      if (p.startsWith('http://') || p.startsWith('https://') || p.startsWith('data:')) return p;
+      return `${origin}${p.startsWith('/') ? '' : '/'}${p}`;
+    };
+
     const userData = {
       id: user.id,
       email: user.email,
@@ -292,6 +338,7 @@ export const loginController = async (c: Context) => {
       departmentId: user.department?.id ?? null,
       departmentName: user.department?.name ?? null,
       is_verified: user.is_verified,
+      avatar: toAbsolute(user.avatar ?? null),
     };
 
     // 7. Generate JWT token
@@ -390,7 +437,7 @@ export const verifyEmailController = async (c: Context) => {
         username: userData.username,
         user_type: userData.user_type,
         name: `${userData.first_name || ""} ${userData.last_name || ""}`.trim(),
-        department: userData.department,
+        departmentId: userData.departmentId,
         is_verified: true,
       },
       process.env.JWT_SECRET || "your-secret-key",
@@ -408,7 +455,7 @@ export const verifyEmailController = async (c: Context) => {
         firstName: userData.first_name,
         lastName: userData.last_name,
         userType: userData.user_type,
-        department: userData.department,
+        departmentId: userData.departmentId,
         isVerified: true,
       },
     });
@@ -562,7 +609,9 @@ export async function getCurrentUser(c: Context) {
         email: true,
         user_type: true,
         is_verified: true,
-        // add other user fields you want to return
+        departmentId: true,
+        department: { select: { id: true, name: true } },
+        avatar: true,
       },
     });
 
@@ -570,7 +619,14 @@ export async function getCurrentUser(c: Context) {
       return c.json({ error: 'User not found' }, 404);
     }
 
-    return c.json({ user });
+    const origin = new URL(c.req.url).origin;
+    const toAbsolute = (p?: string | null) => {
+      if (!p) return null;
+      if (p.startsWith('http://') || p.startsWith('https://') || p.startsWith('data:')) return p;
+      return `${origin}${p.startsWith('/') ? '' : '/'}${p}`;
+    };
+
+    return c.json({ user: { ...user, avatar: toAbsolute(user.avatar ?? null) } });
   } catch (error) {
     return c.json({ error: 'Invalid or expired token' }, 401);
   }

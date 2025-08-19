@@ -1,9 +1,22 @@
 import type { Context } from 'hono';
 import prisma from '../../utils/db.js';
 
+// Helper to get client IP safely
+// ✅ Helper to safely get client IP
+const getClientIp = (c: Context): string | null => {
+  return (
+    c.req.header("x-forwarded-for")?.split(",")[0] || // behind proxy/load balancer
+    (c.req.raw as any)?.socket?.remoteAddress ||      // Node's native socket
+    null
+  );
+};
+
 // Get all departments
 export const getAllDepartments = async (c: Context) => {
   try {
+    const clientIp = getClientIp(c);
+    console.log(`Client IP: ${clientIp} - getAllDepartments`);
+
     const departments = await prisma.department.findMany({
       orderBy: {
         name: 'asc',
@@ -38,6 +51,9 @@ export const getAllDepartments = async (c: Context) => {
 
 export const getDepartmentCards = async (c: Context) => {
   try {
+    const clientIp = getClientIp(c);
+    console.log(`Client IP: ${clientIp} - getDepartmentCards`);
+
     // Get user from JWT middleware
     const user = c.get('user');
     
@@ -117,9 +133,12 @@ export const getDepartmentCards = async (c: Context) => {
   }
 };
 
-// Get single department by IDz`
+// Get single department by ID
 export const getDepartmentById = async (c: Context) => {
   try {
+    const clientIp = getClientIp(c);
+    console.log(`Client IP: ${clientIp} - getDepartmentById`);
+
     const { id } = c.req.param();
     const departmentId = parseInt(id);
 
@@ -162,55 +181,77 @@ export const getDepartmentById = async (c: Context) => {
   }
 };
 
-// Create new department
 export const createDepartment = async (c: Context) => {
   try {
-    const body = await c.req.json();
-    const { name, description, code } = body;
+    const clientIp = getClientIp(c);
+    console.log(`Client IP: ${clientIp} - createDepartment`);
 
+    // ✅ Get authenticated user from context (set by auth middleware)
+    const authUser = c.get("user");
+    const userIdFromToken = authUser?.id;
+
+    if (!userIdFromToken) {
+      return c.json({ error: "Unauthorized - no valid user in token" }, 401);
+    }
+
+    const body = await c.req.json();
+    console.log("Request body:", body);
+
+    const { name, description, code } = body; // userId is NOT taken from body anymore
+
+    // ✅ Validation
     if (!name || !name.trim()) {
-      return c.json({ error: 'Department name is required' }, 400);
+      return c.json({ error: "Department name is required" }, 400);
     }
 
     if (!code || !code.trim()) {
-      return c.json({ error: 'Department code is required' }, 400);
+      return c.json({ error: "Department code is required" }, 400);
     }
 
-    // Check if department with same name already exists
     const existingDepartmentByName = await prisma.department.findFirst({
-      where: {
-        name: name.trim(),
-      },
+      where: { name: name.trim() },
     });
 
     if (existingDepartmentByName) {
-      return c.json({ error: 'Department with this name already exists' }, 400);
+      return c.json(
+        { error: "Department with this name already exists" },
+        400
+      );
     }
 
-    // Check if department with same code already exists
     const existingDepartmentByCode = await prisma.department.findFirst({
-      where: {
-        code: code.trim(),
-      },
+      where: { code: code.trim() },
     });
 
     if (existingDepartmentByCode) {
-      return c.json({ error: 'Department with this code already exists' }, 400);
+      return c.json(
+        { error: "Department with this code already exists" },
+        400
+      );
     }
 
+    // ✅ Create Department
     const department = await prisma.department.create({
       data: {
         name: name.trim(),
         code: code.trim(),
-        // description: description?.trim() || null, // Temporarily commented out
+        description: description?.trim() || null,
       },
       include: {
-        _count: {
-          select: {
-            users: true,
-            cards: true,
-          },
-        },
+        _count: { select: { users: true, cards: true } },
+      },
+    });
+
+    // ✅ Store activity log in activities table
+    await prisma.activity.create({
+      data: {
+        userId: userIdFromToken, // taken from token
+        action: "create",
+        resourceType: "department",
+        resourceId: department.id,
+        description: `Created department "${department.name}" with code "${department.code}"`,
+        ipAddress: clientIp,
+        userAgent: c.req.header("user-agent") || null,
       },
     });
 
@@ -218,22 +259,28 @@ export const createDepartment = async (c: Context) => {
       id: department.id,
       name: department.name,
       code: department.code,
-      description: null, // Temporarily set to null until Prisma client is regenerated
+      description: department.description,
       created_at: department.createdAt,
       updated_at: department.updatedAt,
       _count: department._count,
     };
 
     return c.json(departmentWithCounts, 201);
-  } catch (error) {
-    console.error('Error creating department:', error);
-    return c.json({ error: 'Failed to create department' }, 500);
+  } catch (error: any) {
+    console.error("Error creating department:", error);
+    return c.json(
+      { error: "Failed to create department", details: error.message },
+      500
+    );
   }
 };
 
 // Update department
 export const updateDepartment = async (c: Context) => {
   try {
+    const clientIp = getClientIp(c);
+    console.log(`Client IP: ${clientIp} - updateDepartment`);
+
     const { id } = c.req.param();
     const departmentId = parseInt(id);
     const body = await c.req.json();
@@ -325,6 +372,9 @@ export const updateDepartment = async (c: Context) => {
 // Delete department
 export const deleteDepartment = async (c: Context) => {
   try {
+    const clientIp = getClientIp(c);
+    console.log(`Client IP: ${clientIp} - deleteDepartment`);
+
     const { id } = c.req.param();
     const departmentId = parseInt(id);
 
@@ -350,4 +400,4 @@ export const deleteDepartment = async (c: Context) => {
     console.error('Error deleting department:', error);
     return c.json({ error: 'Failed to delete department' }, 500);
   }
-}; 
+};

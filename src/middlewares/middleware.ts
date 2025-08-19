@@ -9,6 +9,7 @@ export const signupSchema = z.object({
   confirmPassword: z.string().min(8),
   department: z.string().min(2).nullable().optional(),
   userType: z.enum(['ADMIN', 'HEAD', 'STAFF']),
+  avatar: z.string().url().or(z.string().startsWith('data:image/')).optional().nullable(),
 });
 
 export const validateSignup = async (c: Context, next: Function) => {

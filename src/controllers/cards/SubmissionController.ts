@@ -26,6 +26,7 @@ export const createSubmission = async (c: Context) => {
     body = await c.req.parseBody();
     const file = body['file'];
     const { title, description, type, departmentId } = body;
+    const existingSubmissionId = body['submissionId'] ? Number(body['submissionId']) : null;
     
     // Validation
     if (!file || !title || !type) {
@@ -54,6 +55,15 @@ export const createSubmission = async (c: Context) => {
       return c.json({ error: 'Department not found' }, 404);
     }
 
+    // If uploading to an existing submission, ensure it belongs to this card
+    let targetSubmission: any = null;
+    if (existingSubmissionId) {
+      targetSubmission = await prisma.submission.findUnique({ where: { id: existingSubmissionId } });
+      if (!targetSubmission || targetSubmission.cardId !== Number(cardId)) {
+        return c.json({ error: 'Submission not found for this card' }, 404);
+      }
+    }
+
     // File processing
     const uniqueName = `${Date.now()}-${file.name}`;
     const uploadPath = path.join(process.cwd(), 'uploads', 'submissions', uniqueName);
@@ -73,36 +83,69 @@ export const createSubmission = async (c: Context) => {
     
     fs.writeFileSync(uploadPath, fileBuffer);
 
-    // Database operation - now creates both submission and file records in a transaction
-    const [submission, fileRecord] = await prisma.$transaction([
-      prisma.submission.create({
-        data: {
-          title: String(title),
-          description: description?.toString(),
-          type: String(type),
-          link: `/uploads/submissions/${uniqueName}`,
-          userId,
-          cardId: Number(cardId),
-          departmentId: departmentId ? Number(departmentId) : null
-        },
-        include: {
-          user: { select: { id: true, username: true } },
-          department: true
-        }
-      }),
-      prisma.file.create({
-        data: {
-          name: uniqueName,
-          originalName: file.name,
-          type: file.type,
-          mimeType: file.type,
-          size: file.size,
-          path: `/uploads/submissions/${uniqueName}`,
-          cardId: Number(cardId),
-          userId: userId
-        }
-      })
-    ]);
+    let submission: any;
+    let fileRecord: any;
+    if (existingSubmissionId) {
+      // Update existing submission's link and optionally metadata, create a file record
+      [submission, fileRecord] = await prisma.$transaction([
+        prisma.submission.update({
+          where: { id: existingSubmissionId },
+          data: {
+            title: String(title),
+            description: description?.toString(),
+            type: String(type),
+            link: `/uploads/submissions/${uniqueName}`,
+          },
+          include: {
+            user: { select: { id: true, username: true } },
+            department: true
+          }
+        }),
+        prisma.file.create({
+          data: {
+            name: uniqueName,
+            originalName: file.name,
+            type: file.type,
+            mimeType: file.type,
+            size: file.size,
+            path: `/uploads/submissions/${uniqueName}`,
+            cardId: Number(cardId),
+            userId: userId
+          }
+        })
+      ]);
+    } else {
+      // Create new submission and file
+      [submission, fileRecord] = await prisma.$transaction([
+        prisma.submission.create({
+          data: {
+            title: String(title),
+            description: description?.toString(),
+            type: String(type),
+            link: `/uploads/submissions/${uniqueName}`,
+            userId,
+            cardId: Number(cardId),
+            departmentId: departmentId ? Number(departmentId) : null
+          },
+          include: {
+            user: { select: { id: true, username: true } },
+            department: true
+          }
+        }),
+        prisma.file.create({
+          data: {
+            name: uniqueName,
+            originalName: file.name,
+            type: file.type,
+            mimeType: file.type,
+            size: file.size,
+            path: `/uploads/submissions/${uniqueName}`,
+            cardId: Number(cardId),
+            userId: userId
+          }
+        })
+      ]);
+    }
 
     return c.json({ 
       success: true,
@@ -177,24 +220,20 @@ export const getSubmissionsByCard = async (c: Context) => {
 
 export const getFilesBySubmission = async (c: Context) => {
   try {
-    const cardId = c.req.param('id');
+    const paramId = c.req.param('submissionId') ?? c.req.param('id');
+    const cardId = Number(paramId);
+    if (!cardId || Number.isNaN(cardId)) {
+      return c.json({ error: 'Invalid card id' }, 400);
+    }
 
     const files = await prisma.file.findMany({
-      where: {
-        cardId: Number(cardId)
-      },
+      where: { cardId },
       include: {
-        user: { // Include user details for owner
-          select: {
-            id: true,
-            first_name: true,
-            last_name: true
-          }
+        user: {
+          select: { id: true, first_name: true, last_name: true }
         }
       },
-      orderBy: {
-        updatedAt: 'desc'
-      }
+      orderBy: { updatedAt: 'desc' }
     });
 
     return c.json(files);

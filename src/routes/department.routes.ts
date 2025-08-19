@@ -7,6 +7,7 @@ import {
   deleteDepartment,
   getDepartmentCards
 } from '../controllers/department/departmentController.js';
+import { authMiddleware } from '../middlewares/authmiddleware.js';
 
 const departmentRouter = new Hono()
 
@@ -17,7 +18,7 @@ const departmentRouter = new Hono()
 .get('/:id', getDepartmentById)
 
 // Create new department
-.post('/', createDepartment)
+.post('/', authMiddleware, createDepartment)
 
 // Update department
 .put('/:id', updateDepartment)
