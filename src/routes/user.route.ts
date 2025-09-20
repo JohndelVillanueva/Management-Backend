@@ -1,8 +1,10 @@
 import { Hono } from 'hono';
-import { getAllUsers } from '../controllers/users/usersController.js';
+import { getAllUsers, testConnection } from '../controllers/users/usersController.js';
+import { authMiddleware } from '../middlewares/authmiddleware.js';
 
 const usersRoute = new Hono()
 
-.get('/', getAllUsers);
+.get('/', authMiddleware, getAllUsers)
+.get('/test', testConnection);
 
 export default usersRoute;

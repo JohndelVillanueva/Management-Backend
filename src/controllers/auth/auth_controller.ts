@@ -333,7 +333,8 @@ export const loginController = async (c: Context) => {
       id: user.id,
       email: user.email,
       username: user.username,
-      user_type: user.user_type,
+      userType: user.user_type, // Use userType to match middleware expectations
+      user_type: user.user_type, // Keep user_type for backward compatibility
       name: `${user.first_name || ""} ${user.last_name || ""}`.trim(),
       departmentId: user.department?.id ?? null,
       departmentName: user.department?.name ?? null,

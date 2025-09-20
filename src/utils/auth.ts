@@ -8,6 +8,7 @@ const VERIFICATION_TOKEN_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
 
 interface UserPayload {
   id: string | number;
+  userId?: string | number; // Add userId for compatibility
   email: string;
   userType: 'ADMIN' | 'HEAD' | 'STAFF';
   is_verified?: boolean;
@@ -17,7 +18,8 @@ interface UserPayload {
 export function generateToken(user: UserPayload) {
   return jwt.sign(
     {
-      id: user.id,
+      userId: user.id, // Use userId to match middleware expectations
+      id: user.id, // Keep id for backward compatibility
       email: user.email,
       userType: user.userType,
       isVerified: user.is_verified || false

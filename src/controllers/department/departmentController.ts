@@ -188,7 +188,7 @@ export const createDepartment = async (c: Context) => {
 
     // ✅ Get authenticated user from context (set by auth middleware)
     const authUser = c.get("user");
-    const userIdFromToken = authUser?.id;
+    const userIdFromToken = authUser?.userId || authUser?.id;
 
     if (!userIdFromToken) {
       return c.json({ error: "Unauthorized - no valid user in token" }, 401);
