@@ -26,6 +26,7 @@ model Card {
   status        String      @default("active")  // active, archived, deleted
   isPublic      Boolean     @default(false)     // Public/private card
   viewCount     Int         @default(0)         // Track view statistics
+  expiresAt     DateTime?   // <-- Added expiration date field
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   submissions   Submission[]
@@ -36,6 +37,7 @@ model Card {
   @@map("cards")
   @@index([departmentId])
   @@index([status])
+  @@index([expiresAt]) // <-- Added index for better query performance
 }
 
 
