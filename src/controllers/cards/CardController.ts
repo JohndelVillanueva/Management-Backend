@@ -3,112 +3,107 @@ import type { Context } from 'hono';
 
 export const getDepartmentCards = async (c: Context) => {
   try {
-    // Get user from JWT (assuming you have authentication middleware)
+    // Get user from JWT
     const user = c.get('user');
     
     if (!user) {
+      console.error('No user found in request');
       return c.json({ error: 'Unauthorized' }, 401);
     }
 
-    // Calculate current date for expiration filtering
-    const currentDate = new Date();
+    console.log('User fetching department cards:', { 
+      id: user.id, 
+      user_type: user.user_type, 
+      departmentId: user.departmentId 
+    });
 
-    // For department heads - get cards assigned to their department
-    if (user.user_type === 'HEAD') {
-      const cards = await prisma.card.findMany({
-        where: {
-          departmentId: user.departmentId,
-          status: 'active', // Only show active cards
-          // Only show cards that are not expired OR have no expiration date
-          OR: [
-            { expiresAt: null }, // Cards with no expiration
-            { expiresAt: { gt: currentDate } } // Cards that haven't expired yet
-          ]
-        },
-        include: {
-          department: true,
-          files: true,
-          head: {
-            select: {
-              id: true,
-              first_name: true,
-              last_name: true,
-              email: true
+    // For HEAD and STAFF users - get cards from their department
+    if (user.user_type === 'HEAD' || user.user_type === 'STAFF') {
+      console.log('Fetching cards for user type:', user.user_type, 'departmentId:', user.departmentId);
+      
+      if (!user.departmentId) {
+        console.error(`${user.user_type} user has no departmentId assigned`);
+        return c.json({ error: `${user.user_type} user not assigned to any department` }, 400);
+      }
+
+      try {
+        const cards = await prisma.card.findMany({
+          where: {
+            departmentId: user.departmentId,
+            status: 'active'
+          },
+          include: {
+            department: true,
+            files: true,
+            head: {
+              select: {
+                id: true,
+                first_name: true,
+                last_name: true,
+                email: true
+              }
             }
+          },
+          orderBy: {
+            createdAt: 'desc'
           }
-        },
-        orderBy: {
-          createdAt: 'desc'
-        }
-      });
-      return c.json(cards);
+        });
+        
+        console.log(`Found ${cards.length} cards for ${user.user_type} user in department ${user.departmentId}`);
+        return c.json(cards);
+      } catch (dbError) {
+        console.error('Database error in getDepartmentCards:', dbError);
+        return c.json({ error: 'Database error occurred' }, 500);
+      }
     }
 
-    // For staff - get cards from their department
-    if (user.user_type === 'STAFF' && user.departmentId) {
-      const cards = await prisma.card.findMany({
-        where: {
-          departmentId: user.departmentId,
-          status: 'active',
-          // Only show cards that are not expired OR have no expiration date
-          OR: [
-            { expiresAt: null },
-            { expiresAt: { gt: currentDate } }
-          ]
-        },
-        include: {
-          department: true,
-          files: true,
-          head: {
-            select: {
-              id: true,
-              first_name: true,
-              last_name: true,
-              email: true
-            }
-          }
-        },
-        orderBy: {
-          createdAt: 'desc'
-        }
-      });
-      return c.json(cards);
-    }
-
-    // For admin - get all cards (or filter as needed)
+    // For ADMIN - get all cards
     if (user.user_type === 'ADMIN') {
-      const cards = await prisma.card.findMany({
-        where: {
-          status: 'active',
-          // Only show cards that are not expired OR have no expiration date
-          OR: [
-            { expiresAt: null },
-            { expiresAt: { gt: currentDate } }
-          ]
-        },
-        include: {
-          department: true,
-          files: true,
-          head: {
-            select: {
-              id: true,
-              first_name: true,
-              last_name: true,
-              email: true
+      console.log('Fetching all cards for ADMIN user');
+      
+      try {
+        const cards = await prisma.card.findMany({
+          where: {
+            status: 'active'
+          },
+          include: {
+            department: true,
+            files: true,
+            head: {
+              select: {
+                id: true,
+                first_name: true,
+                last_name: true,
+                email: true
+              }
             }
+          },
+          orderBy: {
+            createdAt: 'desc'
           }
-        },
-        orderBy: {
-          createdAt: 'desc'
-        }
-      });
-      return c.json(cards);
+        });
+        
+        console.log(`Found ${cards.length} cards for ADMIN user`);
+        return c.json(cards);
+      } catch (dbError) {
+        console.error('Database error in getDepartmentCards for ADMIN:', dbError);
+        return c.json({ error: 'Database error occurred' }, 500);
+      }
     }
 
+    console.error('User role not recognized:', user.user_type);
     return c.json({ error: 'No cards available for your role' }, 403);
 
   } catch (error) {
-    console.error('Error fetching department cards:', error);
+    console.error('Unexpected error in getDepartmentCards:', error);
+    
+    // More detailed error logging
+    if (error instanceof Error) {
+      console.error('Error name:', error.name);
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+    }
+    
     return c.json({ error: 'Failed to fetch department cards' }, 500);
   }
 };
@@ -170,34 +165,13 @@ export const createCard = async (c: Context) => {
       finalHeadId = Number(headId);
     }
 
-    // Validate expiration date if provided
-    if (expiresAt) {
-      const expirationDate = new Date(expiresAt);
-      console.log('Parsed expiration date:', expirationDate);
-      console.log('Is valid date?', !isNaN(expirationDate.getTime()));
-      console.log('Is future date?', expirationDate > new Date());
-      
-      if (isNaN(expirationDate.getTime())) {
-        return c.json({ error: 'Invalid expiration date format' }, 400);
-      }
-      
-      // Check if expiration date is in the future
-      if (expirationDate <= new Date()) {
-        return c.json({ error: 'Expiration date must be in the future' }, 400);
-      }
-    }
-
+    // Remove expiration date validation since the field doesn't exist
     const cardData: any = { 
       title, 
       description, 
       departmentId: finalDepartmentId,
       headId: finalHeadId,
     };
-
-    // Only add expiresAt if it's provided and valid
-    if (expiresAt) {
-      cardData.expiresAt = new Date(expiresAt);
-    }
 
     console.log('Creating card with data:', cardData);
 
@@ -229,33 +203,30 @@ export const getAllCards = async (c: Context) => {
   try {
     const { userId, departmentId, includeExpired = 'false' } = c.req.query();
     
-    const currentDate = new Date();
+    console.log('Fetching all cards with params:', { userId, departmentId, includeExpired });
+    
     const where: any = { status: 'active' };
     
-    // Handle expiration filtering
-    if (includeExpired === 'false') {
-      // Exclude expired cards (default behavior)
-      where.OR = [
-        { expiresAt: null },
-        { expiresAt: { gt: currentDate } }
-      ];
-    } else if (includeExpired === 'only') {
-      // Only get expired cards
-      where.expiresAt = { lte: currentDate };
-    }
-    // If includeExpired is 'true', show all cards regardless of expiration
-    
+    let andConditions: any[] = [];
+
+    // Remove expiration filtering since expiresAt field doesn't exist
+
+    // Build user/department conditions
     if (userId) {
-      where.OR = [
-        { headId: Number(userId) }
-      ];
-      
+      const orConditions: any[] = [{ headId: Number(userId) }];
       if (departmentId) {
-        where.OR.push({
-          departmentId: Number(departmentId)
-        });
+        orConditions.push({ departmentId: Number(departmentId) });
       }
+      andConditions.push({ OR: orConditions });
+    } else if (departmentId) {
+      andConditions.push({ departmentId: Number(departmentId) });
     }
+
+    if (andConditions.length > 0) {
+      where.AND = andConditions;
+    }
+    
+    console.log('Final Prisma where clause:', JSON.stringify(where, null, 2));
     
     const cards = await prisma.card.findMany({
       where,
@@ -274,9 +245,18 @@ export const getAllCards = async (c: Context) => {
       }
     });
     
+    console.log(`Found ${cards.length} cards total`);
     return c.json(cards, 200);
   } catch (error) {
     console.error('Error fetching cards:', error);
+    
+    // More detailed error logging
+    if (error instanceof Error) {
+      console.error('Error name:', error.name);
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+    }
+    
     return c.json({ error: 'Failed to fetch cards.' }, 500);
   }
 };
@@ -284,6 +264,13 @@ export const getAllCards = async (c: Context) => {
 export const getCardById = async (c: Context) => {
   try {
     const cardId = c.req.param('id');
+    
+    if (!cardId) {
+      return c.json({ error: 'Card ID is required' }, 400);
+    }
+    
+    console.log('Fetching card with ID:', cardId);
+    
     const card = await prisma.card.findUnique({
       where: { id: Number(cardId) },
       include: {
@@ -304,16 +291,6 @@ export const getCardById = async (c: Context) => {
       return c.json({ error: 'Card not found' }, 404);
     }
 
-    // Check if card is expired (but still return it)
-    if (card.expiresAt && card.expiresAt <= new Date()) {
-      // You might want to add an 'isExpired' flag to the response
-      const cardWithExpirationFlag = {
-        ...card,
-        isExpired: true
-      };
-      return c.json(cardWithExpirationFlag);
-    }
-
     return c.json(card);
   } catch (error) {
     console.error('Error fetching card:', error);
@@ -321,70 +298,24 @@ export const getCardById = async (c: Context) => {
   }
 };
 
-// New method to get expired cards (for admin/cleanup purposes)
-export const getExpiredCards = async (c: Context) => {
-  try {
-    const user = c.get('user');
-    
-    if (!user || user.user_type !== 'ADMIN') {
-      return c.json({ error: 'Unauthorized - Admin access required' }, 401);
-    }
+// Remove expired cards methods since expiresAt field doesn't exist
 
-    const currentDate = new Date();
-    const expiredCards = await prisma.card.findMany({
-      where: {
-        status: 'active',
-        expiresAt: {
-          lte: currentDate
-        }
-      },
-      include: {
-        department: true,
-        files: true,
-        head: {
-          select: {
-            id: true,
-            first_name: true,
-            last_name: true,
-            email: true
-          }
-        }
-      },
-      orderBy: {
-        expiresAt: 'desc'
-      }
-    });
-
-    return c.json(expiredCards);
-  } catch (error) {
-    console.error('Error fetching expired cards:', error);
-    return c.json({ error: 'Failed to fetch expired cards' }, 500);
-  }
-};
-
-// Method to update card expiration date
-export const updateCardExpiration = async (c: Context) => {
+// Method to update card (general update)
+export const updateCard = async (c: Context) => {
   try {
     const cardId = c.req.param('id');
     const body = await c.req.json();
-    const { expiresAt } = body;
+    const { title, description } = body;
 
-    // Validate expiration date if provided
-    if (expiresAt) {
-      const expirationDate = new Date(expiresAt);
-      if (isNaN(expirationDate.getTime())) {
-        return c.json({ error: 'Invalid expiration date format' }, 400);
-      }
-      
-      if (expirationDate <= new Date()) {
-        return c.json({ error: 'Expiration date must be in the future' }, 400);
-      }
+    if (!cardId) {
+      return c.json({ error: 'Card ID is required' }, 400);
     }
 
     const card = await prisma.card.update({
       where: { id: Number(cardId) },
       data: {
-        expiresAt: expiresAt ? new Date(expiresAt) : null
+        title,
+        description
       },
       include: {
         department: true,
@@ -401,7 +332,7 @@ export const updateCardExpiration = async (c: Context) => {
 
     return c.json(card);
   } catch (error) {
-    console.error('Error updating card expiration:', error);
-    return c.json({ error: 'Failed to update card expiration' }, 500);
+    console.error('Error updating card:', error);
+    return c.json({ error: 'Failed to update card' }, 500);
   }
 };
