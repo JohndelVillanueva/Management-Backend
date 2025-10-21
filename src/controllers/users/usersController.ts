@@ -108,3 +108,251 @@ export const getAllUsers = async (c: Context) => {
     }, 500);
   }
 };
+
+// Enhanced updateUser function with better error handling
+export const updateUser = async (c: Context) => {
+  console.log('🔵 UPDATE USER ENDPOINT HIT');
+  
+  try {
+    // Get the user ID from URL parameters
+    const userIdParam = c.req.param('id');
+    console.log('🔵 User ID from params:', userIdParam);
+
+    const userId = parseInt(userIdParam);
+    
+    if (isNaN(userId)) {
+      console.log('🔴 Invalid user ID:', userIdParam);
+      return c.json({ 
+        success: false, 
+        error: 'Invalid user ID format' 
+      }, 400);
+    }
+
+    // Get authenticated user from context
+    const authUser = c.get("user");
+    console.log('🔵 Authenticated User Context:', authUser);
+
+    if (!authUser) {
+      console.log('🔴 No authenticated user found in context');
+      return c.json({ 
+        success: false, 
+        error: 'Authentication required' 
+      }, 401);
+    }
+
+    const userType = authUser?.userType;
+    const authUserId = authUser?.id;
+
+    console.log("🔵 Update User - Auth Details:", {
+      userType,
+      authUserId,
+      targetUserId: userId,
+      authUserDepartment: authUser.departmentId
+    });
+
+    // Parse request body
+    let updateData;
+    try {
+      updateData = await c.req.json();
+      console.log('🔵 Request Body:', updateData);
+    } catch (parseError) {
+      console.log('🔴 JSON Parse Error:', parseError);
+      return c.json({ 
+        success: false, 
+        error: 'Invalid JSON in request body' 
+      }, 400);
+    }
+
+    // Validate required fields
+    if (!updateData.first_name || !updateData.last_name || !updateData.email || !updateData.user_type) {
+      console.log('🔴 Missing required fields:', {
+        first_name: !!updateData.first_name,
+        last_name: !!updateData.last_name,
+        email: !!updateData.email,
+        user_type: !!updateData.user_type
+      });
+      return c.json({ 
+        success: false,
+        error: 'First name, last name, email, and user type are required' 
+      }, 400);
+    }
+
+    // Check if user exists
+    const existingUser = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { department: true }
+    });
+
+    if (!existingUser) {
+      console.log('🔴 User not found with ID:', userId);
+      return c.json({ 
+        success: false, 
+        error: 'User not found' 
+      }, 404);
+    }
+
+    console.log('🔵 Existing User:', {
+      id: existingUser.id,
+      user_type: existingUser.user_type,
+      department: existingUser.department
+    });
+
+    // Authorization checks
+    if (userType === 'STAFF' && authUserId !== userId) {
+      console.log('🔴 STAFF user trying to update another user');
+      return c.json({ 
+        success: false,
+        error: 'You can only update your own profile' 
+      }, 403);
+    }
+
+    if ((userType === 'HEAD' || userType === 'DepartmentHead') && authUser.departmentId) {
+      // HEAD can only update STAFF in their department
+      if (existingUser.user_type !== 'STAFF' || existingUser.departmentId !== authUser.departmentId) {
+        console.log('🔴 HEAD user unauthorized to update this user');
+        return c.json({ 
+          success: false,
+          error: 'You can only update STAFF users in your department' 
+        }, 403);
+      }
+    }
+
+    // Check for email duplication
+    if (updateData.email !== existingUser.email) {
+      const emailExists = await prisma.user.findFirst({
+        where: {
+          email: updateData.email,
+          id: { not: userId }
+        }
+      });
+
+      if (emailExists) {
+        console.log('🔴 Email already exists:', updateData.email);
+        return c.json({ 
+          success: false,
+          error: 'Email already exists' 
+        }, 409);
+      }
+    }
+
+    // Prepare update data
+    const dataToUpdate: any = {
+      first_name: updateData.first_name,
+      last_name: updateData.last_name,
+      email: updateData.email,
+      user_type: updateData.user_type,
+      updated_at: new Date(),
+    };
+
+    // Handle department
+    if (updateData.departmentId !== undefined) {
+      if (updateData.departmentId === '' || updateData.departmentId === null) {
+        dataToUpdate.departmentId = null;
+      } else {
+        const departmentId = parseInt(updateData.departmentId);
+        
+        if (isNaN(departmentId)) {
+          return c.json({ 
+            success: false,
+            error: 'Invalid department ID' 
+          }, 400);
+        }
+
+        // Verify department exists
+        const department = await prisma.department.findUnique({
+          where: { id: departmentId }
+        });
+
+        if (!department) {
+          console.log('🔴 Department not found:', departmentId);
+          return c.json({ 
+            success: false,
+            error: 'Department not found' 
+          }, 404);
+        }
+
+        dataToUpdate.departmentId = departmentId;
+      }
+    }
+
+    // Special handling for HEAD users
+    if (updateData.user_type === 'HEAD' && dataToUpdate.departmentId) {
+      const existingHead = await prisma.user.findFirst({
+        where: {
+          user_type: 'HEAD',
+          departmentId: dataToUpdate.departmentId,
+          id: { not: userId }
+        }
+      });
+
+      if (existingHead) {
+        console.log('🔴 Department already has a HEAD:', dataToUpdate.departmentId);
+        return c.json({ 
+          success: false,
+          error: 'This department already has a HEAD user' 
+        }, 409);
+      }
+    }
+
+    console.log('🔵 Data to update:', dataToUpdate);
+
+    // Perform update
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: dataToUpdate,
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        first_name: true,
+        last_name: true,
+        phone_number: true,
+        user_type: true,
+        is_active: true,
+        is_verified: true,
+        created_at: true,
+        avatar: true,
+        department: {
+          select: { 
+            id: true,
+            name: true 
+          },
+        },
+      },
+    });
+
+    console.log('✅ User updated successfully:', updatedUser.id);
+
+    return c.json({
+      success: true,
+      message: 'User updated successfully',
+      user: updatedUser
+    }, 200);
+
+  } catch (error) {
+    console.error('🔴 Error updating user:', error);
+    
+    // Handle Prisma errors
+    if (error instanceof Error) {
+      if (error.message.includes('P2025')) {
+        return c.json({ 
+          success: false,
+          error: 'User not found' 
+        }, 404);
+      }
+      
+      if (error.message.includes('P2002')) {
+        return c.json({ 
+          success: false,
+          error: 'Email already exists' 
+        }, 409);
+      }
+    }
+
+    return c.json({ 
+      success: false,
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, 500);
+  }
+};
