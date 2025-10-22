@@ -38,7 +38,7 @@ app.route('/auth', authRouter);
 // Card Routes
 app.route('/cards', cardRouter);
 // Submission Routes
-app.route('/submission', submissionRouter);
+app.route('/submissions', submissionRouter);
 // File Routes
 app.route('/file', fileRouter);
 // Users Routes
