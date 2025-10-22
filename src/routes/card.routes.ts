@@ -4,11 +4,10 @@ import { authMiddleware } from '../middlewares/authmiddleware.js';
 
 const cardRouter = new Hono()
 
-// Make sure these routes are properly defined
 cardRouter
   .post('/', authMiddleware, createCard)
   .get('/', getAllCards)
+  .get('/department', authMiddleware, getDepartmentCards) // ← Move this BEFORE /:id
   .get('/:id', getCardById)
-  .get('/department', authMiddleware, getDepartmentCards) // ← Make sure this has authMiddleware
 
 export default cardRouter;
