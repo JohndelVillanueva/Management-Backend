@@ -81,83 +81,72 @@ export const getOverviewStats = async (c: Context) => {
 };
 
 // 2. Real-time Metrics
+// In your real-time metrics endpoint
 export const getRealtimeMetrics = async (c: Context) => {
   try {
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-    const activeThreshold = new Date(Date.now() - 15 * 60 * 1000); // 15 minutes ago
-
-    // Active teachers (logged in within last 15 minutes)
-    const activeTeachers = await prisma.user.count({
+    // Get total active staff and heads
+    const totalStaff = await prisma.user.count({
       where: {
-        is_active: true,
-        last_login: { gte: activeThreshold }
+        user_type: { in: ['STAFF', 'HEAD'] },
+        is_active: true
       }
     });
 
-    // Submissions today
+    // Get submissions today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
     const submittedToday = await prisma.submission.count({
       where: {
         createdAt: {
-          gte: todayStart,
-          lte: todayEnd
-        },
-        status: 'active'
+          gte: today
+        }
       }
     });
 
-    // Pending submissions (cards with incomplete submissions)
-    const activeCards = await prisma.card.findMany({
-      where: { 
+    // Get pending cards (cards with submissions less than total staff)
+    const allCards = await prisma.card.findMany({
+      where: {
         status: 'active',
-        expiresAt: { gte: now }
+        OR: [
+          { expiresAt: null },
+          { expiresAt: { gt: new Date() } }
+        ]
       },
       include: {
-        submissions: {
-          where: { status: 'active' }
-        },
         department: {
           include: {
             users: {
-              where: { 
-                is_active: true,
-                user_type: 'STAFF'
+              where: {
+                user_type: { in: ['STAFF', 'HEAD'] },
+                is_active: true
               }
             }
           }
-        }
+        },
+        submissions: true
       }
     });
 
-    let pendingCount = 0;
-    activeCards.forEach(card => {
-      const expected = card.department.users.length;
-      const actual = card.submissions.length;
-      pendingCount += Math.max(0, expected - actual);
-    });
+    const pendingNow = allCards.filter(card => {
+      const totalStaffInDept = card.department.users.length;
+      return card.submissions.length < totalStaffInDept;
+    }).length;
 
-    // Cards due today
-    const tomorrowStart = new Date(todayEnd.getTime() + 1);
-    const dueToday = await prisma.card.count({
-      where: {
-        status: 'active',
-        expiresAt: {
-          gte: todayStart,
-          lt: tomorrowStart
-        }
-      }
-    });
+    const dueToday = allCards.filter(card => 
+      card.expiresAt && 
+      new Date(card.expiresAt).toDateString() === new Date().toDateString()
+    ).length;
 
     return c.json({
-      activeTeachers,
+      activeTeachers: totalStaff, // This now shows actual total staff
       submittedToday,
-      pendingNow: pendingCount,
+      pendingNow,
       dueToday
-    }, 200);
+    });
   } catch (error) {
     console.error('Error fetching realtime metrics:', error);
-    return c.json({ error: 'Failed to fetch metrics' }, 500);
+    return c.json({ error: 'Failed to fetch realtime metrics' }, 500);
   }
 };
 

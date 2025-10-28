@@ -122,7 +122,6 @@ export const createCard = async (c: Context) => {
     }
     
     console.log('Received data:', { title, description, departmentId, headId, expiresAt });
-    console.log('User creating card:', { userId: user.id, userType: user.user_type, userDepartment: user.departmentId });
     
     if (!title) {
       return c.json({ error: 'Title is required.' }, 400);
@@ -165,12 +164,13 @@ export const createCard = async (c: Context) => {
       finalHeadId = Number(headId);
     }
 
-    // Remove expiration date validation since the field doesn't exist
+    // FIX: Include expiresAt in the card data
     const cardData: any = { 
       title, 
       description, 
       departmentId: finalDepartmentId,
       headId: finalHeadId,
+      expiresAt: expiresAt ? new Date(expiresAt) : null, // Add this line
     };
 
     console.log('Creating card with data:', cardData);
@@ -334,5 +334,94 @@ export const updateCard = async (c: Context) => {
   } catch (error) {
     console.error('Error updating card:', error);
     return c.json({ error: 'Failed to update card' }, 500);
+  }
+};
+
+// Add this to your CardController.ts
+export const getCardAnalytics = async (c: Context) => {
+  try {
+    console.log('Fetching card analytics data...');
+    
+    const cards = await prisma.card.findMany({
+      where: {
+        status: 'active',
+        OR: [
+          { expiresAt: null },
+          { expiresAt: { gt: new Date() } }
+        ]
+      },
+      include: {
+        department: {
+          include: {
+            users: {
+              where: {
+                user_type: { in: ['STAFF', 'HEAD'] },
+                is_active: true
+              }
+            }
+          }
+        },
+        submissions: {
+          select: {
+            id: true
+          }
+        },
+        head: {
+          select: {
+            first_name: true,
+            last_name: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    console.log(`Found ${cards.length} cards for analytics`);
+
+    const formattedCards = cards.map(card => {
+      const totalStaffInDepartment = card.department.users.length;
+      const submissionCount = card.submissions.length;
+      
+      console.log(`Card ${card.id}: ${submissionCount} submissions, ${totalStaffInDepartment} staff in department`);
+
+      // Calculate status based on submissions and expiration
+      let status = 'Pending';
+      if (submissionCount === totalStaffInDepartment && totalStaffInDepartment > 0) {
+        status = 'Completed';
+      } else if (card.expiresAt && new Date() > new Date(card.expiresAt)) {
+        status = 'Overdue';
+      } else if (submissionCount > 0) {
+        status = 'In Progress';
+      }
+
+      // Calculate priority based on expiration date
+      let priority = 'Medium';
+      if (card.expiresAt) {
+        const sevenDaysFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+        if (new Date(card.expiresAt) < new Date()) {
+          priority = 'Urgent';
+        } else if (new Date(card.expiresAt) < sevenDaysFromNow) {
+          priority = 'High';
+        }
+      }
+
+      return {
+        id: card.id,
+        title: card.title,
+        postedBy: card.head ? `${card.head.first_name} ${card.head.last_name}` : 'Unknown',
+        deadline: card.expiresAt ? new Date(card.expiresAt).toLocaleDateString() : 'No deadline',
+        priority: priority,
+        submissions: submissionCount,
+        totalStaff: totalStaffInDepartment,
+        status: status
+      };
+    });
+
+    return c.json(formattedCards);
+  } catch (error) {
+    console.error('Error fetching card analytics:', error);
+    return c.json({ error: 'Failed to fetch analytics' }, 500);
   }
 };
