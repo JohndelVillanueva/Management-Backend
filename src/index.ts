@@ -10,7 +10,9 @@ import 'dotenv/config';
 import submissionRouter from './routes/submission.route.js';
 import fileRouter from './routes/file.route.js';
 import usersRoute from './routes/user.route.js';
+import headRoute  from './routes/head.routes.js'; 
 import { activitiesRoute } from './routes/acitivities.route.js';
+
   
 const app = new Hono();
 
@@ -45,6 +47,8 @@ app.route('/file', fileRouter);
 app.route('/users', usersRoute);
 // Activities Routes
 app.route('/activities', activitiesRoute);
+// Head Routes
+app.route('/head', headRoute);
 
 // Health check
 app.get('/', (c) => c.text('Pampanga State University Admin Portal API'));

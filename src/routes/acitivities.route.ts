@@ -1,7 +1,35 @@
+// routes/acitivities.route.ts
 import { Hono } from "hono";
-import { getAllActivities } from "../controllers/activities/activities_controller.js";
-import { authMiddleware } from "../middlewares/authmiddleware.js";
+import {
+  getOverviewStats,
+  getRealtimeMetrics,
+  getAllCardsWithProgress,
+  getDepartmentStats,
+  getRecentActivity
+} from "../controllers/activities/activities_controller.js";
 
-export const activitiesRoute = new Hono();
+const activitiesRoute = new Hono();
 
-activitiesRoute.get("/", authMiddleware, getAllActivities);
+// Admin middleware - add your authentication/authorization here
+const isAdmin = async (c: any, next: any) => {
+  // Example: Check if user is admin from JWT or session
+  // const user = c.get('user');
+  // if (user?.user_type !== 'ADMIN') {
+  //   return c.json({ error: 'Admin access required' }, 403);
+  // }
+  await next();
+};
+
+// Apply admin middleware to all routes
+activitiesRoute.use('*', isAdmin);
+
+// Dashboard Statistics Routes
+activitiesRoute.get('/stats/overview', getOverviewStats);
+activitiesRoute.get('/stats/realtime', getRealtimeMetrics);
+activitiesRoute.get('/stats/departments', getDepartmentStats);
+
+// Cards and Activity Routes
+activitiesRoute.get('/cards', getAllCardsWithProgress);
+activitiesRoute.get('/recent', getRecentActivity);
+
+export { activitiesRoute };
