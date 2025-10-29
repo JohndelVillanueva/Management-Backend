@@ -29,11 +29,19 @@ export const getDepartmentCards = async (c: Context) => {
       try {
         const cards = await prisma.card.findMany({
           where: {
-            departmentId: user.departmentId,
+            departments: {
+              some: {
+                departmentId: user.departmentId
+              }
+            },
             status: 'active'
           },
           include: {
-            department: true,
+            departments: {
+              include: {
+                department: true
+              }
+            },
             files: true,
             head: {
               select: {
@@ -67,7 +75,11 @@ export const getDepartmentCards = async (c: Context) => {
             status: 'active'
           },
           include: {
-            department: true,
+            departments: {
+              include: {
+                department: true
+              }
+            },
             files: true,
             head: {
               select: {
@@ -97,7 +109,6 @@ export const getDepartmentCards = async (c: Context) => {
   } catch (error) {
     console.error('Unexpected error in getDepartmentCards:', error);
     
-    // More detailed error logging
     if (error instanceof Error) {
       console.error('Error name:', error.name);
       console.error('Error message:', error.message);
@@ -108,82 +119,66 @@ export const getDepartmentCards = async (c: Context) => {
   }
 };
 
-// Your existing controller methods
 export const createCard = async (c: Context) => {
   try {
     const body = await c.req.json();
-    const { title, description, departmentId, headId, expiresAt, allowedFileTypes } = body;
+    const { title, description, departmentIds, headId, expiresAt, allowedFileTypes } = body; // Changed to departmentIds
     
-    // Get user from JWT
-    const user = c.get('user');
-    
-    if (!user) {
-      return c.json({ error: 'Unauthorized' }, 401);
-    }
-    
-    console.log('Received data:', { title, description, departmentId, headId, expiresAt, allowedFileTypes });
-    
-    if (!title) {
-      return c.json({ error: 'Title is required.' }, 400);
-    }
+    console.log('Creating card with data:', {
+      title,
+      description,
+      departmentIds, // Now departmentIds
+      headId,
+      expiresAt,
+      allowedFileTypes
+    });
 
-    // For HEAD users, they can only create cards for their own department
-    let finalDepartmentId: number;
-    if (user.user_type === 'HEAD') {
-      if (!user.departmentId) {
-        return c.json({ error: 'Head user must be assigned to a department to create cards' }, 400);
-      }
-      finalDepartmentId = user.departmentId;
-      console.log('Head user creating card for their department:', finalDepartmentId);
-    } else if (user.user_type === 'ADMIN') {
-      // Admin can specify department, but it's required
-      if (!departmentId) {
-        return c.json({ error: 'departmentId is required for admin users' }, 400);
-      }
-      finalDepartmentId = Number(departmentId);
-    } else {
-      return c.json({ error: 'Only admin and head users can create cards' }, 403);
-    }
-
-    // For HEAD users, they are automatically assigned as the head of the card
-    let finalHeadId: number | null = null;
-    if (user.user_type === 'HEAD') {
-      finalHeadId = user.id;
-      console.log('Automatically assigning head user as card head:', finalHeadId);
-    } else if (user.user_type === 'ADMIN' && headId) {
-      // Admin can specify a head, but validate it exists and is a HEAD
-      const headUser = await prisma.user.findUnique({
-        where: { 
-          id: Number(headId),
-          user_type: 'HEAD'
-        }
+    // Handle department assignment
+    let finalDepartmentIds: number[] = [];
+    
+    if (departmentIds === 'ALL') {
+      // Get all department IDs for ALL selection
+      const allDepartments = await prisma.department.findMany({
+        select: { id: true }
       });
-      if (!headUser) {
-        return c.json({ error: 'Head user not found or not a department head' }, 404);
-      }
-      finalHeadId = Number(headId);
+      finalDepartmentIds = allDepartments.map(dept => dept.id);
+    } else if (Array.isArray(departmentIds)) {
+      // Multiple departments selected
+      finalDepartmentIds = departmentIds;
+    } else if (typeof departmentIds === 'number') {
+      // Single department (backward compatibility)
+      finalDepartmentIds = [departmentIds];
+    } else {
+      throw new Error('Invalid department IDs format');
     }
 
-    // Process allowedFileTypes - convert array to string for database storage
-    const allowedFileTypesString = Array.isArray(allowedFileTypes) 
-      ? allowedFileTypes.join(',') 
-      : '*';
+    // Validate that we have at least one department
+    if (finalDepartmentIds.length === 0) {
+      throw new Error('At least one department is required');
+    }
 
-    const cardData: any = { 
-      title, 
-      description, 
-      departmentId: finalDepartmentId,
-      headId: finalHeadId,
-      expiresAt: expiresAt ? new Date(expiresAt) : null,
-      allowedFileTypes: allowedFileTypesString, // Add this line
-    };
-
-    console.log('Creating card with data:', cardData);
+    console.log('Assigning card to departments:', finalDepartmentIds);
 
     const card = await prisma.card.create({
-      data: cardData,
+      data: {
+        title,
+        description: description || null,
+        allowedFileTypes: Array.isArray(allowedFileTypes) ? allowedFileTypes.join(',') : (allowedFileTypes || "*"),
+        expiresAt: expiresAt ? new Date(expiresAt) : null,
+        headId: headId || null,
+        // Create relations in the junction table
+        departments: {
+          create: finalDepartmentIds.map((deptId: number) => ({
+            departmentId: deptId
+          }))
+        }
+      },
       include: {
-        department: true,
+        departments: {
+          include: {
+            department: true
+          }
+        },
         head: {
           select: {
             id: true,
@@ -195,74 +190,58 @@ export const createCard = async (c: Context) => {
       }
     });
 
-    console.log('Created card:', card);
-
+    console.log('Card created successfully:', card.id);
     return c.json(card, 201);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error creating card:', error);
-    return c.json({ error: 'Failed to create card.' }, 500);
+    return c.json({ 
+      error: 'Failed to create card',
+      details: error.message 
+    }, 500);
   }
 };
-
 export const getAllCards = async (c: Context) => {
   try {
-    const { userId, departmentId, includeExpired = 'false' } = c.req.query();
+    const { departmentId } = c.req.query();
     
-    console.log('Fetching all cards with params:', { userId, departmentId, includeExpired });
+    let whereClause: any = { status: 'active' };
     
-    const where: any = { status: 'active' };
-    
-    let andConditions: any[] = [];
-
-    // Remove expiration filtering since expiresAt field doesn't exist
-
-    // Build user/department conditions
-    if (userId) {
-      const orConditions: any[] = [{ headId: Number(userId) }];
-      if (departmentId) {
-        orConditions.push({ departmentId: Number(departmentId) });
-      }
-      andConditions.push({ OR: orConditions });
-    } else if (departmentId) {
-      andConditions.push({ departmentId: Number(departmentId) });
-    }
-
-    if (andConditions.length > 0) {
-      where.AND = andConditions;
-    }
-    
-    console.log('Final Prisma where clause:', JSON.stringify(where, null, 2));
-    
-    const cards = await prisma.card.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        department: true,
-        files: true,
-        head: {
-          select: {
-            id: true,
-            first_name: true,
-            last_name: true,
-            email: true
+    if (departmentId) {
+      // Get cards that are associated with the specified department
+      whereClause = {
+        status: 'active',
+        departments: {
+          some: {
+            departmentId: parseInt(departmentId)
           }
         }
-      }
-    });
-    
-    console.log(`Found ${cards.length} cards total`);
-    return c.json(cards, 200);
-  } catch (error) {
-    console.error('Error fetching cards:', error);
-    
-    // More detailed error logging
-    if (error instanceof Error) {
-      console.error('Error name:', error.name);
-      console.error('Error message:', error.message);
-      console.error('Error stack:', error.stack);
+      };
     }
     
-    return c.json({ error: 'Failed to fetch cards.' }, 500);
+    const cards = await prisma.card.findMany({
+      where: whereClause,
+      include: {
+        departments: {
+          include: {
+            department: true
+          }
+        },
+        head: true,
+        files: true,
+        _count: {
+          select: {
+            submissions: true,
+            files: true
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    return c.json(cards);
+  } catch (error) {
+    console.error('Error fetching cards:', error);
+    return c.json({ error: 'Failed to fetch cards' }, 500);
   }
 };
 
@@ -279,7 +258,11 @@ export const getCardById = async (c: Context) => {
     const card = await prisma.card.findUnique({
       where: { id: Number(cardId) },
       include: {
-        department: true,
+        departments: {
+          include: {
+            department: true
+          }
+        },
         files: true,
         head: {
           select: {

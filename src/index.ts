@@ -11,25 +11,25 @@ import submissionRouter from './routes/submission.route.js';
 import fileRouter from './routes/file.route.js';
 import usersRoute from './routes/user.route.js';
 import headRoute  from './routes/head.routes.js'; 
-import { activitiesRoute } from './routes/acitivities.route.js';
+// ❌ Fix this line - remove the typo "acitivities" → "activities"
+import  activitiesRoute  from './routes/acitivities.route.js';
 
   
 const app = new Hono();
 
 // Middleware
-app.use('*',   cors({
-    origin: 'http://localhost:5173', // Specific origin, not '*'
-    credentials: true,               // Important: allow credentials (cookies)
-  }));
+app.use('*', cors({
+    origin: 'http://localhost:5173',
+    credentials: true,
+}));
 
 // Serve uploaded files
 app.use('/uploads/*', serveStatic({ root: './' }));
 
-  app.use('*', async (c, next) => {
+app.use('*', async (c, next) => {
     console.log(`[${c.req.method}] ${c.req.path}`);
     await next();
-  });
-  
+});
 
 // Department Routes
 app.route('/departments', departmentRouter);
@@ -39,16 +39,33 @@ app.route('/auth', authRouter);
 
 // Card Routes
 app.route('/cards', cardRouter);
+
 // Submission Routes
 app.route('/submissions', submissionRouter);
+
 // File Routes
 app.route('/file', fileRouter);
+
 // Users Routes
 app.route('/users', usersRoute);
+
 // Activities Routes
 app.route('/activities', activitiesRoute);
+
 // Head Routes
 app.route('/head', headRoute);
+
+// Add a route debug endpoint
+app.get('/debug-routes', (c) => {
+  const routes = [
+    '/activities/stats/overview',
+    '/activities/stats/realtime', 
+    '/activities/stats/departments',
+    '/activities/recent',
+    '/departments/storage'
+  ];
+  return c.json({ availableRoutes: routes });
+});
 
 // Health check
 app.get('/', (c) => c.text('Pampanga State University Admin Portal API'));

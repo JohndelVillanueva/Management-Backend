@@ -1,4 +1,4 @@
-// controllers/admin_controller.ts
+// controllers/activities_controller.ts
 import type { Context } from "hono";
 import prisma from "../../utils/db.js";
 
@@ -12,19 +12,23 @@ export const getOverviewStats = async (c: Context) => {
       where: { status: 'active' }
     });
 
-    // Get all active cards with their submissions
+    // Get all active cards with their submissions and departments
     const cards = await prisma.card.findMany({
       where: { status: 'active' },
       include: {
         submissions: {
           where: { status: 'active' }
         },
-        department: {
+        departments: {
           include: {
-            users: {
-              where: { 
-                is_active: true,
-                user_type: 'STAFF'
+            department: {
+              include: {
+                users: {
+                  where: { 
+                    is_active: true,
+                    user_type: 'STAFF'
+                  }
+                }
               }
             }
           }
@@ -39,11 +43,15 @@ export const getOverviewStats = async (c: Context) => {
     let submissionTimeCount = 0;
 
     cards.forEach(card => {
-      const expectedSubmissions = card.department.users.length;
+      // Calculate total staff across all departments for this card
+      const totalStaff = card.departments.reduce((sum, cd) => {
+        return sum + cd.department.users.length;
+      }, 0);
+      
       const actualSubmissions = card.submissions.length;
       const isOverdue = card.expiresAt && card.expiresAt < now;
 
-      if (actualSubmissions >= expectedSubmissions) {
+      if (actualSubmissions >= totalStaff && totalStaff > 0) {
         completedCount++;
         // Calculate average submission time for completed cards
         card.submissions.forEach(sub => {
@@ -81,7 +89,6 @@ export const getOverviewStats = async (c: Context) => {
 };
 
 // 2. Real-time Metrics
-// In your real-time metrics endpoint
 export const getRealtimeMetrics = async (c: Context) => {
   try {
     // Get total active staff and heads
@@ -114,12 +121,16 @@ export const getRealtimeMetrics = async (c: Context) => {
         ]
       },
       include: {
-        department: {
+        departments: {
           include: {
-            users: {
-              where: {
-                user_type: { in: ['STAFF', 'HEAD'] },
-                is_active: true
+            department: {
+              include: {
+                users: {
+                  where: {
+                    user_type: { in: ['STAFF', 'HEAD'] },
+                    is_active: true
+                  }
+                }
               }
             }
           }
@@ -129,7 +140,10 @@ export const getRealtimeMetrics = async (c: Context) => {
     });
 
     const pendingNow = allCards.filter(card => {
-      const totalStaffInDept = card.department.users.length;
+      // Calculate total staff across all departments for this card
+      const totalStaffInDept = card.departments.reduce((sum, cd) => {
+        return sum + cd.department.users.length;
+      }, 0);
       return card.submissions.length < totalStaffInDept;
     }).length;
 
@@ -139,7 +153,7 @@ export const getRealtimeMetrics = async (c: Context) => {
     ).length;
 
     return c.json({
-      activeTeachers: totalStaff, // This now shows actual total staff
+      activeTeachers: totalStaff,
       submittedToday,
       pendingNow,
       dueToday
@@ -165,12 +179,16 @@ export const getAllCardsWithProgress = async (c: Context) => {
             user_type: true
           }
         },
-        department: {
+        departments: {
           include: {
-            users: {
-              where: { 
-                is_active: true,
-                user_type: 'STAFF'
+            department: {
+              include: {
+                users: {
+                  where: { 
+                    is_active: true,
+                    user_type: 'STAFF'
+                  }
+                }
               }
             }
           }
@@ -185,10 +203,14 @@ export const getAllCardsWithProgress = async (c: Context) => {
     });
 
     const cardsWithProgress = cards.map(card => {
-      const totalStaff = card.department.users.length;
+      // Calculate total staff across all departments for this card
+      const totalStaff = card.departments.reduce((sum, cd) => {
+        return sum + cd.department.users.length;
+      }, 0);
+      
       const submissions = card.submissions.length;
       const isOverdue = card.expiresAt && card.expiresAt < now;
-      const isCompleted = submissions >= totalStaff;
+      const isCompleted = submissions >= totalStaff && totalStaff > 0;
 
       let status = 'Pending';
       let priority = 'Medium';
@@ -216,6 +238,9 @@ export const getAllCardsWithProgress = async (c: Context) => {
         ? `${card.head.first_name} ${card.head.last_name}` 
         : card.head?.user_type === 'ADMIN' ? 'Admin Office' : 'Department Head';
 
+      // Get department names (for multi-department support)
+      const departmentNames = card.departments.map(cd => cd.department.name).join(', ');
+
       return {
         id: card.id,
         title: card.title,
@@ -223,7 +248,7 @@ export const getAllCardsWithProgress = async (c: Context) => {
         deadline: card.expiresAt?.toISOString().split('T')[0] || 'No deadline',
         status,
         priority,
-        department: card.department.name,
+        department: departmentNames || 'No Department',
         submissions,
         totalStaff,
         completedOn: isCompleted ? card.updatedAt.toISOString().split('T')[0] : null
@@ -237,29 +262,29 @@ export const getAllCardsWithProgress = async (c: Context) => {
   }
 };
 
-// 4. Department Statistics
+// 4. Department Statistics - KEEP ONLY ONE VERSION OF THIS FUNCTION
 export const getDepartmentStats = async (c: Context) => {
   try {
     const now = new Date();
 
     const departments = await prisma.department.findMany({
       include: {
-        cards: {
-          where: { status: 'active' },
+        cardDepartments: {
           include: {
-            submissions: {
-              where: { status: 'active' }
-            },
-            department: {
+            card: {
+              where: { status: 'active' },
               include: {
-                users: {
-                  where: { 
-                    is_active: true,
-                    user_type: 'STAFF'
-                  }
+                submissions: {
+                  where: { status: 'active' }
                 }
               }
             }
+          }
+        },
+        users: {
+          where: { 
+            is_active: true,
+            user_type: 'STAFF'
           }
         }
       }
@@ -267,13 +292,16 @@ export const getDepartmentStats = async (c: Context) => {
 
     const departmentStats = departments.map(dept => {
       let completedCards = 0;
-      const totalCards = dept.cards.length;
+      const totalCards = dept.cardDepartments.length;
 
-      dept.cards.forEach(card => {
-        const expectedSubmissions = card.department.users.length;
+      dept.cardDepartments.forEach(cd => {
+        const card = cd.card;
+        if (!card) return;
+        
+        const expectedSubmissions = dept.users.length;
         const actualSubmissions = card.submissions.length;
         
-        if (actualSubmissions >= expectedSubmissions) {
+        if (actualSubmissions >= expectedSubmissions && expectedSubmissions > 0) {
           completedCards++;
         }
       });
@@ -339,27 +367,6 @@ export const getRecentActivity = async (c: Context) => {
   }
 };
 
-// Helper function to calculate time ago
-function getTimeAgo(date: Date): string {
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins} min ago`;
-  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-  return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-}
-
-const STORAGE_LIMITS = {
-  WARNING_THRESHOLD: 0.8, // 80% - show warning
-  CRITICAL_THRESHOLD: 0.9, // 90% - show critical warning
-  MAX_STORAGE: 2 * 1024 * 1024 * 1024, // 2GB max storage per department
-};
-
-
 // 6. Department Storage Data
 export const getDepartmentStorage = async (c: Context) => {
   try {
@@ -371,16 +378,20 @@ export const getDepartmentStorage = async (c: Context) => {
             user_type: { in: ['STAFF', 'HEAD'] }
           }
         },
-        cards: {
-          where: { status: 'active' },
+        cardDepartments: {
           include: {
-            submissions: {
+            card: {
               where: { status: 'active' },
               include: {
+                submissions: {
+                  where: { status: 'active' },
+                  include: {
+                    files: true
+                  }
+                },
                 files: true
               }
-            },
-            files: true
+            }
           }
         }
       }
@@ -394,7 +405,10 @@ export const getDepartmentStorage = async (c: Context) => {
       let totalFileSize = 0;
       let totalFiles = 0;
 
-      dept.cards.forEach(card => {
+      dept.cardDepartments.forEach(cd => {
+        const card = cd.card;
+        if (!card) return;
+
         const expectedSubmissions = dept.users.length;
         const actualSubmissions = card.submissions.length;
         
@@ -423,20 +437,23 @@ export const getDepartmentStorage = async (c: Context) => {
       });
 
       // Calculate completion rate
-      const totalCards = dept.cards.length;
+      const totalCards = dept.cardDepartments.length;
       const completionRate = totalCards > 0 
         ? Math.round((completedCards / totalCards) * 100)
         : 0;
 
       // Calculate storage usage percentage
+      const STORAGE_LIMITS = {
+        MAX_STORAGE: 2 * 1024 * 1024 * 1024, // 2GB max storage per department
+      };
       const storageUsage = totalFileSize / STORAGE_LIMITS.MAX_STORAGE;
       const storagePercentage = Math.round(storageUsage * 100);
 
       // Determine storage status
       let storageStatus = 'normal';
-      if (storageUsage >= STORAGE_LIMITS.CRITICAL_THRESHOLD) {
+      if (storageUsage >= 0.9) { // 90% - critical
         storageStatus = 'critical';
-      } else if (storageUsage >= STORAGE_LIMITS.WARNING_THRESHOLD) {
+      } else if (storageUsage >= 0.8) { // 80% - warning
         storageStatus = 'warning';
       }
 
@@ -473,3 +490,17 @@ export const getDepartmentStorage = async (c: Context) => {
     return c.json({ error: 'Failed to fetch department storage data' }, 500);
   }
 };
+
+// Helper function to calculate time ago
+function getTimeAgo(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins} min ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+  return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+}
