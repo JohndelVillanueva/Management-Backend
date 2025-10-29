@@ -18,21 +18,22 @@ enum UserType {
 }
 
 model Card {
-  id            Int         @id @default(autoincrement())
-  title         String
-  description   String?
-  departmentId  Int
-  department    Department  @relation(fields: [departmentId], references: [id])
-  status        String      @default("active")  // active, archived, deleted
-  isPublic      Boolean     @default(false)     // Public/private card
-  viewCount     Int         @default(0)         // Track view statistics
-  expiresAt     DateTime?   // <-- Added expiration date field
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  submissions   Submission[]
-  files         File[]      // Now properly related
-  headId        Int?        // <-- Add this line
-  head          User?       @relation(fields: [headId], references: [id])
+  id               Int         @id @default(autoincrement())
+  title            String
+  description      String?
+  departmentId     Int
+  department       Department  @relation(fields: [departmentId], references: [id])
+  status           String      @default("active")  // active, archived, deleted
+  isPublic         Boolean     @default(false)     // Public/private card
+  viewCount        Int         @default(0)         // Track view statistics
+  expiresAt        DateTime?   // <-- Added expiration date field
+  allowedFileTypes String      @default("*")       // <-- ADD THIS LINE
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  submissions      Submission[]
+  files            File[]      // Now properly related
+  headId           Int?        // <-- Add this line
+  head             User?       @relation(fields: [headId], references: [id])
 
   @@map("cards")
   @@index([departmentId])

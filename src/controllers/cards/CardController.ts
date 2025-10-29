@@ -112,7 +112,7 @@ export const getDepartmentCards = async (c: Context) => {
 export const createCard = async (c: Context) => {
   try {
     const body = await c.req.json();
-    const { title, description, departmentId, headId, expiresAt } = body;
+    const { title, description, departmentId, headId, expiresAt, allowedFileTypes } = body;
     
     // Get user from JWT
     const user = c.get('user');
@@ -121,7 +121,7 @@ export const createCard = async (c: Context) => {
       return c.json({ error: 'Unauthorized' }, 401);
     }
     
-    console.log('Received data:', { title, description, departmentId, headId, expiresAt });
+    console.log('Received data:', { title, description, departmentId, headId, expiresAt, allowedFileTypes });
     
     if (!title) {
       return c.json({ error: 'Title is required.' }, 400);
@@ -164,13 +164,18 @@ export const createCard = async (c: Context) => {
       finalHeadId = Number(headId);
     }
 
-    // FIX: Include expiresAt in the card data
+    // Process allowedFileTypes - convert array to string for database storage
+    const allowedFileTypesString = Array.isArray(allowedFileTypes) 
+      ? allowedFileTypes.join(',') 
+      : '*';
+
     const cardData: any = { 
       title, 
       description, 
       departmentId: finalDepartmentId,
       headId: finalHeadId,
-      expiresAt: expiresAt ? new Date(expiresAt) : null, // Add this line
+      expiresAt: expiresAt ? new Date(expiresAt) : null,
+      allowedFileTypes: allowedFileTypesString, // Add this line
     };
 
     console.log('Creating card with data:', cardData);
