@@ -401,3 +401,200 @@ export const deleteDepartment = async (c: Context) => {
     return c.json({ error: 'Failed to delete department' }, 500);
   }
 };
+
+// Get department storage data for all departments
+export const getDepartmentStorage = async (c: Context) => {
+  try {
+    const clientIp = getClientIp(c);
+    console.log(`Client IP: ${clientIp} - getDepartmentStorage`);
+
+    // Fetch all departments with their related data
+    const departments = await prisma.department.findMany({
+      include: {
+        users: {
+          where: {
+            is_active: true,
+            user_type: {
+              in: ['STAFF', 'HEAD']  
+            },
+          }
+        },
+        cards: {
+          where: {
+            status: 'active'
+          },
+          include: {
+            submissions: {
+              where: {
+                status: 'active'
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        name: 'asc'
+      }
+    });
+
+    // Process department data
+    const departmentStorage = departments.map(dept => {
+      const staffCount = dept.users.length;
+      const activeCards = dept.cards;
+      
+      // Calculate total submissions across all cards in the department
+      const totalSubmissions = activeCards.reduce((sum, card) => {
+        return sum + card.submissions.length;
+      }, 0);
+
+      // Count completed and pending cards
+      let completedCards = 0;
+      let pendingCards = 0;
+
+      activeCards.forEach(card => {
+        const expectedSubmissions = staffCount;
+        const actualSubmissions = card.submissions.length;
+
+        if (actualSubmissions >= expectedSubmissions && expectedSubmissions > 0) {
+          completedCards++;
+        } else {
+          pendingCards++;
+        }
+      });
+
+      // Calculate completion rate
+      const totalCards = activeCards.length;
+      const completionRate = totalCards > 0
+        ? Math.round((completedCards / totalCards) * 100)
+        : 0;
+
+      return {
+        department: dept.name,
+        totalSubmissions,
+        staffCount,
+        completedCards,
+        pendingCards,
+        completionRate
+      };
+    });
+
+    return c.json(departmentStorage, 200);
+
+  } catch (error) {
+    console.error('Error fetching department storage:', error);
+    return c.json({ 
+      error: 'Failed to fetch department storage data',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    }, 500);
+  }
+};
+
+// Get storage for a specific department by ID
+export const getDepartmentStorageById = async (c: Context) => {
+  try {
+    const clientIp = getClientIp(c);
+    console.log(`Client IP: ${clientIp} - getDepartmentStorageById`);
+
+    const { id } = c.req.param();
+    const departmentId = parseInt(id);
+
+    if (isNaN(departmentId)) {
+      return c.json({ error: 'Invalid department ID' }, 400);
+    }
+
+    const department = await prisma.department.findUnique({
+      where: {
+        id: departmentId
+      },
+      include: {
+        users: {
+          where: {
+            is_active: true,
+            user_type: {
+              in: ['STAFF', 'HEAD']  // Include both STAFF and HEAD
+            }
+          }
+        },
+        cards: {
+          where: {
+            status: 'active'
+          },
+          include: {
+            submissions: {
+              where: {
+                status: 'active'
+              },
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    username: true,
+                    email: true,
+                    first_name: true,
+                    last_name: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!department) {
+      return c.json({ error: 'Department not found' }, 404);
+    }
+
+    const staffCount = department.users.length;
+    const activeCards = department.cards;
+    
+    const totalSubmissions = activeCards.reduce((sum, card) => {
+      return sum + card.submissions.length;
+    }, 0);
+
+    let completedCards = 0;
+    let pendingCards = 0;
+
+    activeCards.forEach(card => {
+      const expectedSubmissions = staffCount;
+      const actualSubmissions = card.submissions.length;
+
+      if (actualSubmissions >= expectedSubmissions && expectedSubmissions > 0) {
+        completedCards++;
+      } else {
+        pendingCards++;
+      }
+    });
+
+    const totalCards = activeCards.length;
+    const completionRate = totalCards > 0
+      ? Math.round((completedCards / totalCards) * 100)
+      : 0;
+
+    return c.json({
+      department: department.name,
+      departmentCode: department.code,
+      totalSubmissions,
+      staffCount,
+      completedCards,
+      pendingCards,
+      completionRate,
+      cards: activeCards.map(card => ({
+        id: card.id,
+        title: card.title,
+        submissions: card.submissions.length,
+        expectedSubmissions: staffCount,
+        status: card.submissions.length >= staffCount && staffCount > 0 ? 'Completed' : 'Pending',
+        expiresAt: card.expiresAt,
+        createdAt: card.createdAt
+      }))
+    }, 200);
+
+  } catch (error) {
+    console.error('Error fetching department storage by ID:', error);
+    return c.json({ 
+      error: 'Failed to fetch department storage data',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    }, 500);
+  }
+};
