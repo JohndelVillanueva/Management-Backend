@@ -5,7 +5,8 @@ import {
   getRealtimeMetrics,
   getAllCardsWithProgress,
   getDepartmentStats,
-  getRecentActivity
+  getRecentActivity,
+  getDepartmentStorage  // Add this import
 } from "../controllers/activities/activities_controller.js";
 
 const activitiesRoute = new Hono();
@@ -31,5 +32,8 @@ activitiesRoute.get('/stats/departments', getDepartmentStats);
 // Cards and Activity Routes
 activitiesRoute.get('/cards', getAllCardsWithProgress);
 activitiesRoute.get('/recent', getRecentActivity);
+
+// Add the new department storage route
+activitiesRoute.get('/storage', getDepartmentStorage);
 
 export { activitiesRoute };

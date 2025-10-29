@@ -352,3 +352,124 @@ function getTimeAgo(date: Date): string {
   if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
   return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
 }
+
+const STORAGE_LIMITS = {
+  WARNING_THRESHOLD: 0.8, // 80% - show warning
+  CRITICAL_THRESHOLD: 0.9, // 90% - show critical warning
+  MAX_STORAGE: 2 * 1024 * 1024 * 1024, // 2GB max storage per department
+};
+
+
+// 6. Department Storage Data
+export const getDepartmentStorage = async (c: Context) => {
+  try {
+    const departments = await prisma.department.findMany({
+      include: {
+        users: {
+          where: { 
+            is_active: true,
+            user_type: { in: ['STAFF', 'HEAD'] }
+          }
+        },
+        cards: {
+          where: { status: 'active' },
+          include: {
+            submissions: {
+              where: { status: 'active' },
+              include: {
+                files: true
+              }
+            },
+            files: true
+          }
+        }
+      }
+    });
+
+    const departmentStorage = departments.map(dept => {
+      // Calculate storage metrics
+      let totalSubmissions = 0;
+      let completedCards = 0;
+      let pendingCards = 0;
+      let totalFileSize = 0;
+      let totalFiles = 0;
+
+      dept.cards.forEach(card => {
+        const expectedSubmissions = dept.users.length;
+        const actualSubmissions = card.submissions.length;
+        
+        // Count card status
+        if (actualSubmissions >= expectedSubmissions) {
+          completedCards++;
+        } else {
+          pendingCards++;
+        }
+
+        totalSubmissions += actualSubmissions;
+
+        // Calculate file storage for card submissions
+        card.submissions.forEach(submission => {
+          submission.files.forEach(file => {
+            totalFileSize += file.size || 0;
+            totalFiles++;
+          });
+        });
+
+        // Calculate file storage for card itself
+        card.files.forEach(file => {
+          totalFileSize += file.size || 0;
+          totalFiles++;
+        });
+      });
+
+      // Calculate completion rate
+      const totalCards = dept.cards.length;
+      const completionRate = totalCards > 0 
+        ? Math.round((completedCards / totalCards) * 100)
+        : 0;
+
+      // Calculate storage usage percentage
+      const storageUsage = totalFileSize / STORAGE_LIMITS.MAX_STORAGE;
+      const storagePercentage = Math.round(storageUsage * 100);
+
+      // Determine storage status
+      let storageStatus = 'normal';
+      if (storageUsage >= STORAGE_LIMITS.CRITICAL_THRESHOLD) {
+        storageStatus = 'critical';
+      } else if (storageUsage >= STORAGE_LIMITS.WARNING_THRESHOLD) {
+        storageStatus = 'warning';
+      }
+
+      // Format file size for display
+      const formatFileSize = (bytes: number): string => {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+      };
+
+      return {
+        department: dept.name,
+        staffCount: dept.users.length,
+        totalCards,
+        totalSubmissions,
+        completedCards,
+        pendingCards,
+        completionRate,
+        totalFiles,
+        totalStorage: formatFileSize(totalFileSize),
+        rawStorage: totalFileSize,
+        storagePercentage,
+        storageStatus,
+        maxStorage: STORAGE_LIMITS.MAX_STORAGE,
+        maxStorageFormatted: formatFileSize(STORAGE_LIMITS.MAX_STORAGE)
+      };
+    });
+
+    return c.json(departmentStorage, 200);
+  } catch (error) {
+    console.error('Error fetching department storage:', error);
+    return c.json({ error: 'Failed to fetch department storage data' }, 500);
+  }
+};
