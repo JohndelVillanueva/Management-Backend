@@ -317,3 +317,44 @@ export const getSubmissionById = async (c: Context) => {
     return c.json({ error: 'Failed to fetch submission' }, 500);
   }
 };
+
+export const getAllSubmissions = async (c: Context) => {
+  try {
+    const submissions = await prisma.submission.findMany({
+      where: {
+        status: 'active'
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            first_name: true,
+            last_name: true,
+            email: true
+          }
+        },
+        card: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            departments: {
+              include: {
+                department: true
+              }
+            }
+          }
+        },
+        department: true
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+    
+    return c.json(submissions);
+  } catch (error) {
+    console.error('Error fetching all submissions:', error);
+    return c.json({ error: 'Failed to fetch submissions' }, 500);
+  }
+};

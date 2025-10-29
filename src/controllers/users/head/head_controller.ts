@@ -19,7 +19,7 @@ export const getDepartmentStats = async (c: Context) => {
     const totalStaff = await prisma.user.count({
       where: {
         departmentId: deptId,
-        user_type: 'STAFF',
+        user_type: { in: ['STAFF', 'HEAD'] }, // Include both STAFF and HEAD
         is_active: true
       }
     });
@@ -29,21 +29,39 @@ export const getDepartmentStats = async (c: Context) => {
     const activeStaff = await prisma.user.count({
       where: {
         departmentId: deptId,
-        user_type: 'STAFF',
+        user_type: { in: ['STAFF', 'HEAD'] },
         is_active: true,
         last_login: { gte: activeThreshold }
       }
     });
 
-    // Get all cards for this department
+    // Get all cards for this department using the junction table
     const cards = await prisma.card.findMany({
       where: {
-        departmentId: deptId,
-        status: 'active'
+        status: 'active',
+        departments: {
+          some: {
+            departmentId: deptId
+          }
+        }
       },
       include: {
         submissions: {
           where: { status: 'active' }
+        },
+        departments: {
+          include: {
+            department: {
+              include: {
+                users: {
+                  where: { 
+                    is_active: true,
+                    user_type: { in: ['STAFF', 'HEAD'] }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     });
@@ -55,8 +73,13 @@ export const getDepartmentStats = async (c: Context) => {
     let overdueCount = 0;
 
     cards.forEach(card => {
+      // Calculate total staff across all departments for this card
+      const totalStaffForCard = card.departments.reduce((sum, cd) => {
+        return sum + cd.department.users.length;
+      }, 0);
+      
       const isOverdue = card.expiresAt && card.expiresAt < now;
-      const isComplete = card.submissions.length >= totalStaff;
+      const isComplete = card.submissions.length >= totalStaffForCard;
 
       if (!isComplete && !isOverdue) {
         activeCards++;
@@ -65,7 +88,7 @@ export const getDepartmentStats = async (c: Context) => {
       if (isComplete) {
         completedSubmissions += card.submissions.length;
       } else {
-        pendingSubmissions += (totalStaff - card.submissions.length);
+        pendingSubmissions += (totalStaffForCard - card.submissions.length);
       }
 
       if (isOverdue && !isComplete) {
@@ -75,7 +98,12 @@ export const getDepartmentStats = async (c: Context) => {
 
     // Calculate performance (completion rate)
     const performance = totalCards > 0 
-      ? Math.round((cards.filter(c => c.submissions.length >= totalStaff).length / totalCards) * 100)
+      ? Math.round((cards.filter(card => {
+          const totalStaffForCard = card.departments.reduce((sum, cd) => 
+            sum + cd.department.users.length, 0
+          );
+          return card.submissions.length >= totalStaffForCard;
+        }).length / totalCards) * 100)
       : 0;
 
     console.log(`📊 Department ${deptId} Stats:`, {
@@ -117,11 +145,16 @@ export const getDepartmentActivity = async (c: Context) => {
 
     const deptId = parseInt(departmentId);
 
-    // Get activities from users in this department
-    const activities = await prisma.activity.findMany({
+    // Get recent submissions for this department
+    const submissions = await prisma.submission.findMany({
       where: {
-        user: {
-          departmentId: deptId
+        status: 'active',
+        card: {
+          departments: {
+            some: {
+              departmentId: deptId
+            }
+          }
         }
       },
       include: {
@@ -131,6 +164,12 @@ export const getDepartmentActivity = async (c: Context) => {
             last_name: true,
             user_type: true
           }
+        },
+        card: {
+          select: {
+            id: true,
+            title: true
+          }
         }
       },
       orderBy: {
@@ -139,26 +178,16 @@ export const getDepartmentActivity = async (c: Context) => {
       take: limit
     });
 
-    const recentActivity = activities.map(activity => {
-      const timeAgo = getTimeAgo(activity.createdAt);
+    const recentActivity = submissions.map(submission => {
+      const timeAgo = getTimeAgo(submission.createdAt);
       
-      // Determine activity type based on action
-      let type = 'submission';
-      if (activity.resourceType === 'card') type = 'card';
-      if (activity.action === 'create' && activity.resourceType === 'user') type = 'staff';
-
-      // Determine status
-      let status = 'active';
-      if (activity.action === 'upload' || activity.action === 'create') status = 'completed';
-      if (activity.action === 'view') status = 'pending';
-
       return {
-        id: activity.id,
-        type,
-        title: activity.description || `${activity.action} ${activity.resourceType}`,
-        user: `${activity.user.first_name} ${activity.user.last_name}`,
+        id: submission.id,
+        type: "submission",
+        title: `Submitted: ${submission.card.title}`,
+        user: `${submission.user.first_name} ${submission.user.last_name}`,
         time: timeAgo,
-        status
+        status: "completed"
       };
     });
 
@@ -184,25 +213,34 @@ export const getDepartmentDeadlines = async (c: Context) => {
     const deptId = parseInt(departmentId);
     const now = new Date();
 
-    // Get cards with upcoming deadlines
+    // Get cards with upcoming deadlines using junction table
     const cards = await prisma.card.findMany({
       where: {
-        departmentId: deptId,
         status: 'active',
         expiresAt: {
+          not: null,
           gte: now // Only future deadlines
+        },
+        departments: {
+          some: {
+            departmentId: deptId
+          }
         }
       },
       include: {
         submissions: {
           where: { status: 'active' }
         },
-        department: {
+        departments: {
           include: {
-            users: {
-              where: { 
-                is_active: true,
-                user_type: 'STAFF'
+            department: {
+              include: {
+                users: {
+                  where: { 
+                    is_active: true,
+                    user_type: { in: ['STAFF', 'HEAD'] }
+                  }
+                }
               }
             }
           }
@@ -215,7 +253,11 @@ export const getDepartmentDeadlines = async (c: Context) => {
     });
 
     const upcomingDeadlines = cards.map(card => {
-      const totalStaff = card.department.users.length;
+      // Calculate total staff across all departments for this card
+      const totalStaff = card.departments.reduce((sum, cd) => 
+        sum + cd.department.users.length, 0
+      );
+      
       const submissions = card.submissions.length;
       const isComplete = submissions >= totalStaff;
 
@@ -263,19 +305,27 @@ export const getDepartmentCards = async (c: Context) => {
 
     const cards = await prisma.card.findMany({
       where: {
-        departmentId: deptId,
-        status: 'active'
+        status: 'active',
+        departments: {
+          some: {
+            departmentId: deptId
+          }
+        }
       },
       include: {
         submissions: {
           where: { status: 'active' }
         },
-        department: {
+        departments: {
           include: {
-            users: {
-              where: { 
-                is_active: true,
-                user_type: 'STAFF'
+            department: {
+              include: {
+                users: {
+                  where: { 
+                    is_active: true,
+                    user_type: { in: ['STAFF', 'HEAD'] }
+                  }
+                }
               }
             }
           }
@@ -293,7 +343,11 @@ export const getDepartmentCards = async (c: Context) => {
     });
 
     const cardsData = cards.map(card => {
-      const totalStaff = card.department.users.length;
+      // Calculate total staff across all departments for this card
+      const totalStaff = card.departments.reduce((sum, cd) => 
+        sum + cd.department.users.length, 0
+      );
+      
       const submissions = card.submissions.length;
       const isOverdue = card.expiresAt && card.expiresAt < now;
       const isComplete = submissions >= totalStaff;
