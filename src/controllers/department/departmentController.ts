@@ -496,69 +496,133 @@ export const deleteDepartment = async (c: Context) => {
   }
 };
 
-// Get department storage data for all departments
 export const getDepartmentStorage = async (c: Context) => {
   try {
-    const clientIp = getClientIp(c);
-    console.log(`Client IP: ${clientIp} - getDepartmentStorage`);
+    console.log('🔍 Starting department storage calculation...');
 
-    // Simple approach - get basic department info first
     const departments = await prisma.department.findMany({
       include: {
         users: {
-          where: {
+          where: { 
             is_active: true,
-            user_type: {
-              in: ['STAFF', 'HEAD']  
-            },
+            user_type: { in: ['STAFF', 'HEAD'] }
           }
         },
-        _count: {
-          select: {
-            cardDepartments: {
-              where: {
-                card: {
-                  status: 'active'
-                }
+        cardDepartments: {
+          include: {
+            card: {
+              // REMOVE the where clause from here
+              include: {
+                submissions: {
+                  // REMOVE the where clause from here too
+                },
+                files: true
               }
             }
           }
         }
-      },
-      orderBy: {
-        name: 'asc'
       }
     });
 
-    // Process department data - simplified version
-    const departmentStorage = departments.map(dept => {
-      const staffCount = dept.users.length;
-      const totalCards = dept._count.cardDepartments;
+    console.log(`📊 Found ${departments.length} departments`);
 
-      // For now, return basic data without complex calculations
-      return {
-        department: dept.name,
-        staffCount,
-        totalCards,
-        totalSubmissions: 0, // Placeholder
-        completedCards: 0,   // Placeholder  
-        pendingCards: totalCards, // Placeholder
-        completionRate: 0,   // Placeholder
-        totalFiles: 0,       // Placeholder
-        totalStorage: '0 Bytes', // Placeholder
-        storageUsed: 0,      // Placeholder
-        storagePercentage: 0 // Placeholder
+    const departmentStorage = departments.map(dept => {
+      let totalSubmissions = 0;
+      let completedCards = 0;
+      let pendingCards = 0;
+      let totalFileSize = 0;
+      let totalFiles = 0;
+
+      console.log(`📝 Processing department: ${dept.name} with ${dept.cardDepartments.length} cards`);
+
+      // Calculate metrics for each card in this department
+      dept.cardDepartments.forEach(cd => {
+        const card = cd.card;
+        if (!card) return;
+
+        // Filter active cards and submissions manually
+        if (card.status !== 'active') return;
+
+        const activeSubmissions = card.submissions.filter(sub => sub.status === 'active');
+        const expectedSubmissions = dept.users.length;
+        const actualSubmissions = activeSubmissions.length;
+        
+        console.log(`🎴 Card "${card.title}": ${actualSubmissions}/${expectedSubmissions} submissions, ${card.files.length} files`);
+
+        // Count card status
+        if (actualSubmissions >= expectedSubmissions && expectedSubmissions > 0) {
+          completedCards++;
+        } else {
+          pendingCards++;
+        }
+
+        totalSubmissions += actualSubmissions;
+
+        // Calculate file storage from CARD files only
+        card.files.forEach(file => {
+          totalFileSize += file.size || 0;
+          totalFiles++;
+          console.log(`📁 File: ${file.originalName}, Size: ${file.size} bytes`);
+        });
+      });
+
+      // Calculate completion rate
+      const totalCards = dept.cardDepartments.filter(cd => cd.card?.status === 'active').length;
+      const completionRate = totalCards > 0 
+        ? Math.round((completedCards / totalCards) * 100)
+        : 0;
+
+      // Calculate storage usage percentage
+      const MAX_STORAGE = 2 * 1024 * 1024 * 1024; // 2GB
+      const storagePercentage = MAX_STORAGE > 0 
+        ? Math.round((totalFileSize / MAX_STORAGE) * 100)
+        : 0;
+
+      // Determine storage status
+      let storageStatus = 'normal';
+      if (storagePercentage >= 90) {
+        storageStatus = 'critical';
+      } else if (storagePercentage >= 80) {
+        storageStatus = 'warning';
+      }
+
+      // Format file size for display
+      const formatFileSize = (bytes: number): string => {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
       };
+
+      const result = {
+        department: dept.name,
+        staffCount: dept.users.length,
+        totalCards,
+        totalSubmissions,
+        completedCards,
+        pendingCards,
+        completionRate,
+        totalFiles,
+        totalStorage: formatFileSize(totalFileSize),
+        rawStorage: totalFileSize,
+        storagePercentage,
+        storageStatus,
+        maxStorage: MAX_STORAGE,
+        maxStorageFormatted: formatFileSize(MAX_STORAGE)
+      };
+
+      console.log(`✅ Department ${dept.name} result:`, result);
+      return result;
     });
 
+    console.log('🎉 Final department storage data:', departmentStorage);
     return c.json(departmentStorage, 200);
-
   } catch (error) {
-    console.error('Error fetching department storage:', error);
+    console.error('❌ Error fetching department storage:', error);
     return c.json({ 
       error: 'Failed to fetch department storage data',
-      message: error instanceof Error ? error.message : 'Unknown error',
-      details: 'This endpoint is being updated for the new schema'
+      details: error instanceof Error ? error.message : 'Unknown error'
     }, 500);
   }
 };
@@ -675,6 +739,101 @@ export const getDepartmentStorageById = async (c: Context) => {
     return c.json({ 
       error: 'Failed to fetch department storage data',
       message: error instanceof Error ? error.message : 'Unknown error'
+    }, 500);
+  }
+};
+
+export const getDepartmentCompletionRates = async (c: Context) => {
+  try {
+    const clientIp = getClientIp(c);
+    console.log(`Client IP: ${clientIp} - getDepartmentCompletionRates`);
+
+    const departmentCompletionRates = await prisma.department.findMany({
+      select: {
+        id: true,
+        name: true,
+        // Count cards through the junction table
+        _count: {
+          select: {
+            cardDepartments: {
+              where: {
+                card: {
+                  status: "active"
+                }
+              }
+            }
+          }
+        },
+        // Get cards with their completion status
+        cardDepartments: {
+          where: {
+            card: {
+              status: "active"
+            }
+          },
+          select: {
+            card: {
+              select: {
+                id: true,
+                submissions: {
+                  // Count ALL submissions for this card
+                  where: {
+                    status: "active" // or remove where clause to count all
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        name: 'asc'
+      }
+    });
+
+    // Transform the data for the dashboard
+    const result = departmentCompletionRates.map(dept => {
+      const totalCards = dept._count.cardDepartments;
+      
+      // DEBUG: Log what we're finding
+      console.log(`Department ${dept.name}:`);
+      console.log(`- Total cards: ${totalCards}`);
+      
+      let completedCards = 0;
+      
+      dept.cardDepartments.forEach(cd => {
+        const submissionCount = cd.card.submissions.length;
+        console.log(`- Card ${cd.card.id}: ${submissionCount} submissions`);
+        
+        // FIXED LOGIC: A card is completed if it has at least 1 submission
+        if (submissionCount > 0) {
+          completedCards++;
+        }
+      });
+      
+      console.log(`- Completed cards: ${completedCards}`);
+
+      const completionRate = totalCards > 0 
+        ? Math.round((completedCards / totalCards) * 100) 
+        : 0;
+
+      console.log(`- Completion rate: ${completionRate}%`);
+
+      return {
+        department: dept.name,
+        totalCards,
+        completedCards, // This should NOT be 0 if completionRate is 100%
+        completionRate: `${completionRate}%`,
+        display: `${completedCards} / ${totalCards} cards`
+      };
+    });
+
+    return c.json(result);
+  } catch (error: any) {
+    console.error('Error fetching department completion rates:', error);
+    return c.json({ 
+      error: 'Failed to fetch department completion rates',
+      message: error.message
     }, 500);
   }
 };

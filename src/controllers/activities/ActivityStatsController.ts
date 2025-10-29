@@ -65,7 +65,8 @@ export const getRealtimeStats = async (c: Context) => {
 
     const totalUsers = await prisma.user.count({
       where: {
-        is_active: true
+        is_active: true,
+        user_type: { in: ['STAFF', 'HEAD'] } // Only count staff and heads as "active teachers"
       }
     });
 
@@ -83,7 +84,7 @@ export const getRealtimeStats = async (c: Context) => {
 
     return c.json({
       todayActivities,
-      totalUsers,
+      activeTeachers: totalUsers, // Changed to match frontend expectation
       totalCards,
       totalSubmissions
     });
@@ -150,31 +151,96 @@ export const getDepartmentActivityStats = async (c: Context) => {
 
 export const getRecentActivity = async (c: Context) => {
   try {
-    console.log('✅ /activities/recent route called');
-    
-    // Simple test response
-    const testData = [
-      {
-        id: 1,
-        teacher: "John Doe",
-        card: "Test Card 1",
-        action: "Submitted",
-        time: "2 hours ago",
-        department: "IT Department"
-      },
-      {
-        id: 2, 
-        teacher: "Jane Smith",
-        card: "Test Card 2",
-        action: "Submitted",
-        time: "1 day ago",
-        department: "HR Department"
-      }
-    ];
+    const limit = parseInt(c.req.query('limit') || '8');
 
-    return c.json(testData, 200);
+    // Get real submission activities with proper relationships
+    const submissions = await prisma.submission.findMany({
+      where: {
+        status: 'active'
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            first_name: true,
+            last_name: true,
+            user_type: true,
+            department: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        },
+        card: {
+          select: {
+            id: true,
+            title: true,
+            departments: {
+              include: {
+                department: {
+                  select: {
+                    name: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      },
+      take: limit
+    });
+
+    // Transform the data - NO STATIC VALUES
+    const recentActivity = submissions.map(submission => {
+      const timeAgo = getTimeAgo(submission.createdAt);
+      
+      // Use actual card title or fallback to card ID
+      const cardTitle = submission.card?.title || `Card #${submission.card?.id || 'Unknown'}`;
+      
+      // Use actual user name or fallback to user type
+      const userName = submission.user ? 
+        `${submission.user.first_name || ''} ${submission.user.last_name || ''}`.trim() : 
+        `User #${submission.userId}`;
+      
+      // Use actual department or fallback to card's first department
+      let departmentName = submission.user?.department?.name;
+      if (!departmentName && submission.card?.departments?.length > 0) {
+        departmentName = submission.card.departments[0].department.name;
+      }
+      if (!departmentName) {
+        departmentName = 'No Department Assigned';
+      }
+
+      return {
+        id: submission.id,
+        userId: submission.userId,
+        cardId: submission.cardId,
+        teacher: userName,
+        card: cardTitle,
+        action: 'Submitted', // This is always "Submitted" for submissions
+        time: timeAgo,
+        department: departmentName,
+        userType: submission.user?.user_type || 'Unknown',
+        createdAt: submission.createdAt
+      };
+    });
+
+    // If no submissions found, return empty array instead of falling back to activities
+    if (recentActivity.length === 0) {
+      console.log('No recent submissions found');
+      return c.json([]);
+    }
+
+    console.log(`Found ${recentActivity.length} recent activities`);
+    return c.json(recentActivity, 200);
+
   } catch (error) {
-    console.error('Error in getRecentActivity:', error);
+    console.error('Error fetching recent activity:', error);
     return c.json({ error: 'Failed to fetch activities' }, 500);
   }
 };

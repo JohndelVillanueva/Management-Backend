@@ -11,11 +11,12 @@ import { authMiddleware } from '../middlewares/authmiddleware.js';
 
 const cardRouter = new Hono()
 
+// Fix the route order and remove duplicates
 cardRouter
   .post('/', authMiddleware, createCard)
   .get('/', getAllCards)
   .get('/department', authMiddleware, getDepartmentCards)
-  .get('/analytics/cards', authMiddleware, getCardAnalytics) // Fixed this route
-  .get('/:id', getCardById)
+  .get('/analytics', getCardAnalytics) // ✅ CORRECT ROUTE - /cards/analytics
+  .get('/:id', getCardById);
 
 export default cardRouter;

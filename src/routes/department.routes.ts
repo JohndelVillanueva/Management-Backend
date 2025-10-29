@@ -7,7 +7,8 @@ import {
   updateDepartment, 
   deleteDepartment,
   getDepartmentStorage,
-  getDepartmentStorageById
+  getDepartmentStorageById,
+  getDepartmentCompletionRates  // 👈 ADD THIS IMPORT
 } from '../controllers/department/departmentController.js';
 import { authMiddleware } from '../middlewares/authmiddleware.js';
 
@@ -17,6 +18,7 @@ departmentRouter
   .get('/', getAllDepartments)
   .get('/storage', authMiddleware, getDepartmentStorage)
   .get('/storage/:id', authMiddleware, getDepartmentStorageById)
+  .get('/completion-rates', authMiddleware, getDepartmentCompletionRates) // 👈 ADD THIS ROUTE
   .get('/:id', getDepartmentById)
   .post('/', authMiddleware, createDepartment)
   .put('/:id', authMiddleware, updateDepartment)
