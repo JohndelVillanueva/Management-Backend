@@ -291,7 +291,7 @@ export const createDepartment = async (c: Context) => {
     const body = await c.req.json();
     console.log("Request body:", body);
 
-    const { name, description, code } = body; // userId is NOT taken from body anymore
+    const { name, description, code } = body;
 
     // ✅ Validation
     if (!name || !name.trim()) {
@@ -324,22 +324,43 @@ export const createDepartment = async (c: Context) => {
       );
     }
 
-    // ✅ Create Department
+    // ✅ Create Department - FIXED: Include description in create data
     const department = await prisma.department.create({
       data: {
         name: name.trim(),
         code: code.trim(),
-        description: description?.trim() || null,
+        description: description?.trim() || null, // Ensure this is included
       },
-      include: {
-        _count: { select: { users: true, cards: true } },
+      select: { // Use select instead of include for better control
+        id: true,
+        name: true,
+        code: true,
+        description: true,
+        createdAt: true,
+        updatedAt: true,
+        _count: {
+          select: {
+            users: {
+              where: {
+                is_active: true
+              }
+            },
+            cardDepartments: {
+              where: {
+                card: {
+                  status: 'active'
+                }
+              }
+            }
+          }
+        }
       },
     });
 
     // ✅ Store activity log in activities table
     await prisma.activity.create({
       data: {
-        userId: userIdFromToken, // taken from token
+        userId: userIdFromToken,
         action: "create",
         resourceType: "department",
         resourceId: department.id,
@@ -356,14 +377,21 @@ export const createDepartment = async (c: Context) => {
       description: department.description,
       created_at: department.createdAt,
       updated_at: department.updatedAt,
-      _count: department._count,
+      _count: {
+        users: department._count.users,
+        cards: department._count.cardDepartments
+      }
     };
 
     return c.json(departmentWithCounts, 201);
   } catch (error: any) {
     console.error("Error creating department:", error);
     return c.json(
-      { error: "Failed to create department", details: error.message },
+      { 
+        error: "Failed to create department", 
+        details: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      },
       500
     );
   }
@@ -429,20 +457,37 @@ export const updateDepartment = async (c: Context) => {
       return c.json({ error: 'Department with this code already exists' }, 400);
     }
 
+    // FIXED: Include description in update data
     const updatedDepartment = await prisma.department.update({
       where: { id: departmentId },
       data: {
         name: name.trim(),
         code: code.trim(),
-        // description: description?.trim() || null, // Temporarily commented out
+        description: description?.trim() || null, // UNCOMMENTED this line
       },
-      include: {
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        description: true,
+        createdAt: true,
+        updatedAt: true,
         _count: {
           select: {
-            users: true,
-            cards: true,
-          },
-        },
+            users: {
+              where: {
+                is_active: true
+              }
+            },
+            cardDepartments: {
+              where: {
+                card: {
+                  status: 'active'
+                }
+              }
+            }
+          }
+        }
       },
     });
 
@@ -450,16 +495,23 @@ export const updateDepartment = async (c: Context) => {
       id: updatedDepartment.id,
       name: updatedDepartment.name,
       code: updatedDepartment.code,
-      description: null, // Temporarily set to null until Prisma client is regenerated
+      description: updatedDepartment.description, // FIXED: Use actual description
       created_at: updatedDepartment.createdAt,
       updated_at: updatedDepartment.updatedAt,
-      _count: updatedDepartment._count,
+      _count: {
+        users: updatedDepartment._count.users,
+        cards: updatedDepartment._count.cardDepartments
+      }
     };
 
     return c.json(departmentWithCounts);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error updating department:', error);
-    return c.json({ error: 'Failed to update department' }, 500);
+    return c.json({ 
+      error: 'Failed to update department',
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    }, 500);
   }
 };
 
