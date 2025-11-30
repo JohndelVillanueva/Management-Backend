@@ -10,7 +10,7 @@ import 'dotenv/config';
 import submissionRouter from './routes/submission.route.js';
 import fileRouter from './routes/file.route.js';
 import usersRoute from './routes/user.route.js';
-import { activitiesRoute } from './routes/acitivities.route.js';
+import  activitiesRoute  from './routes/acitivities.route.js';
   
 const app = new Hono();
 

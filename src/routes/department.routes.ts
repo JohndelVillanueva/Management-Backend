@@ -1,3 +1,4 @@
+// src/routes/department.routes.ts
 import { Hono } from 'hono';
 import { 
   getAllDepartments, 
@@ -5,27 +6,22 @@ import {
   createDepartment, 
   updateDepartment, 
   deleteDepartment,
-  getDepartmentCards
+  getDepartmentStorage,
+  getDepartmentStorageById,
+  getDepartmentCompletionRates  // 👈 ADD THIS IMPORT
 } from '../controllers/department/departmentController.js';
 import { authMiddleware } from '../middlewares/authmiddleware.js';
 
 const departmentRouter = new Hono()
 
-// Get all departments
-.get('/', getAllDepartments)
+departmentRouter
+  .get('/', getAllDepartments)
+  .get('/storage', authMiddleware, getDepartmentStorage)
+  .get('/storage/:id', authMiddleware, getDepartmentStorageById)
+  .get('/completion-rates', authMiddleware, getDepartmentCompletionRates) // 👈 ADD THIS ROUTE
+  .get('/:id', getDepartmentById)
+  .post('/', authMiddleware, createDepartment)
+  .put('/:id', authMiddleware, updateDepartment)
+  .delete('/:id', authMiddleware, deleteDepartment);
 
-// Get single department by ID
-.get('/:id', getDepartmentById)
-
-// Create new department
-.post('/', authMiddleware, createDepartment)
-
-// Update department
-.put('/:id', updateDepartment)
-
-// Delete department
-.delete('/:id', deleteDepartment)
-
- .get('/:id/cards', getDepartmentCards) // Add this new route
-
-export default departmentRouter; 
+export default departmentRouter;

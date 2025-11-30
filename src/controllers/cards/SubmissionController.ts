@@ -5,6 +5,26 @@ import fs from 'fs';
 import { Buffer } from 'buffer';
 import {verifyToken}  from "../../utils/jwt.js"
 
+const isFileTypeAllowed = (fileName: string, allowedFileTypes: string[]): boolean => {
+  if (allowedFileTypes.includes('*')) return true;
+  
+  const fileExtension = '.' + fileName.split('.').pop()?.toLowerCase();
+  
+  return allowedFileTypes.some(allowedType => {
+    if (allowedType.includes(',')) {
+      // Handle multiple extensions like ".doc,.docx"
+      return allowedType.split(',').some(ext => ext.trim() === fileExtension);
+    } else if (allowedType === 'image/*') {
+      // Handle image wildcard
+      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'];
+      return imageExtensions.includes(fileExtension || '');
+    } else {
+      // Handle single extension or exact match
+      return allowedType === fileExtension;
+    }
+  });
+};
+
 
 export const createSubmission = async (c: Context) => {
   let body: any;
@@ -44,7 +64,10 @@ export const createSubmission = async (c: Context) => {
 
     // Verify resources exist
     const [cardExists, departmentExists] = await Promise.all([
-      prisma.card.findUnique({ where: { id: Number(cardId) } }),
+      prisma.card.findUnique({ 
+        where: { id: Number(cardId) },
+        select: { id: true, allowedFileTypes: true } // Include allowedFileTypes
+      }),
       departmentId 
         ? prisma.department.findUnique({ where: { id: Number(departmentId) } })
         : Promise.resolve(true)
@@ -53,6 +76,18 @@ export const createSubmission = async (c: Context) => {
     if (!cardExists) return c.json({ error: 'Card not found' }, 404);
     if (departmentId && !departmentExists) {
       return c.json({ error: 'Department not found' }, 404);
+    }
+
+    // ✅ ADD FILE TYPE VALIDATION HERE
+    const allowedTypes = cardExists.allowedFileTypes.split(',');
+    if (!isFileTypeAllowed(file.name, allowedTypes)) {
+      const allowedTypesDisplay = allowedTypes.includes('*') 
+        ? 'All file types' 
+        : allowedTypes.join(', ');
+      
+      return c.json({ 
+        error: `File type not allowed. This card only accepts: ${allowedTypesDisplay}` 
+      }, 400);
     }
 
     // If uploading to an existing submission, ensure it belongs to this card
@@ -280,5 +315,46 @@ export const getSubmissionById = async (c: Context) => {
   } catch (error) {
     console.error('Error fetching submission:', error);
     return c.json({ error: 'Failed to fetch submission' }, 500);
+  }
+};
+
+export const getAllSubmissions = async (c: Context) => {
+  try {
+    const submissions = await prisma.submission.findMany({
+      where: {
+        status: 'active'
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            first_name: true,
+            last_name: true,
+            email: true
+          }
+        },
+        card: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            departments: {
+              include: {
+                department: true
+              }
+            }
+          }
+        },
+        department: true
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+    
+    return c.json(submissions);
+  } catch (error) {
+    console.error('Error fetching all submissions:', error);
+    return c.json({ error: 'Failed to fetch submissions' }, 500);
   }
 };
