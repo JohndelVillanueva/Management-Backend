@@ -1,6 +1,6 @@
 // user.route.ts - Fixed version
 import { Hono } from 'hono';
-import { getAllUsers, testConnection, updateUser } from '../controllers/users/usersController.js';
+import { getAllUsers, getUserById, testConnection, updateUser, uploadAvatar } from '../controllers/users/usersController.js';
 import { authMiddleware } from '../middlewares/authmiddleware.js';
 
 const usersRoute = new Hono();
@@ -9,6 +9,8 @@ const usersRoute = new Hono();
 usersRoute
   .get('/', authMiddleware, getAllUsers)
   .get('/test', testConnection)
-  .put('/:id', authMiddleware, updateUser); // ✅ Fixed: chain the methods properly
+  .get('/:id', authMiddleware, getUserById)
+  .put('/:id', authMiddleware, updateUser) 
+  .post('/:id/avatar', authMiddleware, uploadAvatar); 
 
 export default usersRoute;

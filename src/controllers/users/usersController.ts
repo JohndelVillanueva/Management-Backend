@@ -1,5 +1,7 @@
 import type { Context } from 'hono';
 import prisma from '../../utils/db.js';
+import fs from 'fs/promises';
+import path from 'path';
 
 // Test endpoint to check database connection
 export const testConnection = async (c: Context) => {
@@ -18,7 +20,6 @@ export const testConnection = async (c: Context) => {
     }, 500);
   }
 };
-
 // GET /users → return all users (with department filtering for HEAD users)
 export const getAllUsers = async (c: Context) => {
   try {
@@ -108,7 +109,6 @@ export const getAllUsers = async (c: Context) => {
     }, 500);
   }
 };
-
 // Enhanced updateUser function with better error handling
 export const updateUser = async (c: Context) => {
   console.log('🔵 UPDATE USER ENDPOINT HIT');
@@ -164,16 +164,15 @@ export const updateUser = async (c: Context) => {
     }
 
     // Validate required fields
-    if (!updateData.first_name || !updateData.last_name || !updateData.email || !updateData.user_type) {
+    if (!updateData.first_name || !updateData.last_name || !updateData.email) {
       console.log('🔴 Missing required fields:', {
         first_name: !!updateData.first_name,
         last_name: !!updateData.last_name,
         email: !!updateData.email,
-        user_type: !!updateData.user_type
       });
       return c.json({ 
         success: false,
-        error: 'First name, last name, email, and user type are required' 
+        error: 'First name, last name, and email are required' 
       }, 400);
     }
 
@@ -240,9 +239,22 @@ export const updateUser = async (c: Context) => {
       first_name: updateData.first_name,
       last_name: updateData.last_name,
       email: updateData.email,
-      user_type: updateData.user_type,
       updated_at: new Date(),
     };
+
+    // Add optional fields if provided
+    if (updateData.phone_number !== undefined) {
+      dataToUpdate.phone_number = updateData.phone_number || null;
+    }
+
+    if (updateData.bio !== undefined) {
+      dataToUpdate.bio = updateData.bio || null;
+    }
+
+    // Only ADMIN can change user_type
+    if (updateData.user_type && userType === 'ADMIN') {
+      dataToUpdate.user_type = updateData.user_type;
+    }
 
     // Handle department
     if (updateData.departmentId !== undefined) {
@@ -275,8 +287,8 @@ export const updateUser = async (c: Context) => {
       }
     }
 
-    // Special handling for HEAD users
-    if (updateData.user_type === 'HEAD' && dataToUpdate.departmentId) {
+    // Special handling for HEAD users (only if user_type is being changed to HEAD)
+    if (dataToUpdate.user_type === 'HEAD' && dataToUpdate.departmentId) {
       const existingHead = await prisma.user.findFirst({
         where: {
           user_type: 'HEAD',
@@ -312,10 +324,12 @@ export const updateUser = async (c: Context) => {
         is_verified: true,
         created_at: true,
         avatar: true,
+        bio: true,
         department: {
           select: { 
             id: true,
-            name: true 
+            name: true,
+            code: true
           },
         },
       },
@@ -323,10 +337,21 @@ export const updateUser = async (c: Context) => {
 
     console.log('✅ User updated successfully:', updatedUser.id);
 
+    // Convert avatar to absolute URL
+    const origin = new URL(c.req.url).origin;
+    const toAbsolute = (p?: string | null) => {
+      if (!p) return null;
+      if (p.startsWith('http://') || p.startsWith('https://') || p.startsWith('data:')) return p;
+      return `${origin}${p.startsWith('/') ? '' : '/'}${p}`;
+    };
+
     return c.json({
       success: true,
       message: 'User updated successfully',
-      user: updatedUser
+      user: {
+        ...updatedUser,
+        avatar: toAbsolute(updatedUser.avatar ?? null),
+      }
     }, 200);
 
   } catch (error) {
@@ -352,6 +377,237 @@ export const updateUser = async (c: Context) => {
     return c.json({ 
       success: false,
       error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, 500);
+  }
+};
+// Add this to your users controller file
+export const getUserById = async (c: Context) => {
+  try {
+    const userIdParam = c.req.param('id');
+    const userId = parseInt(userIdParam);
+    
+    if (isNaN(userId)) {
+      return c.json({ 
+        success: false,
+        error: 'Invalid user ID format' 
+      }, 400);
+    }
+
+    // Get authenticated user from context
+    const authUser = c.get("user");
+    const userType = authUser?.userType;
+    const authUserId = authUser?.id;
+    const userDepartmentId = authUser?.departmentId;
+
+    console.log("Get User By ID - Auth Details:", {
+      userType,
+      authUserId,
+      targetUserId: userId,
+      authUserDepartment: userDepartmentId
+    });
+
+    // Find the requested user
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        first_name: true,
+        last_name: true,
+        phone_number: true,
+        user_type: true,
+        is_active: true,
+        is_verified: true,
+        created_at: true,
+        avatar: true,
+        bio: true,
+        last_login: true,
+        department: {
+          select: { 
+            id: true,
+            name: true,
+            code: true
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      return c.json({ 
+        success: false,
+        error: 'User not found' 
+      }, 404);
+    }
+
+    // Authorization checks
+    // Users can always view their own profile
+    if (authUserId === userId) {
+      const origin = new URL(c.req.url).origin;
+      const toAbsolute = (p?: string | null) => {
+        if (!p) return null;
+        if (p.startsWith('http://') || p.startsWith('https://') || p.startsWith('data:')) return p;
+        return `${origin}${p.startsWith('/') ? '' : '/'}${p}`;
+      };
+
+      return c.json({
+        ...user,
+        avatar: toAbsolute(user.avatar ?? null),
+      }, 200);
+    }
+
+    // HEAD users can view STAFF in their department
+    if ((userType === 'HEAD' || userType === 'DepartmentHead') && userDepartmentId) {
+      if (user.user_type !== 'STAFF' || user.department?.id !== userDepartmentId) {
+        return c.json({ 
+          success: false,
+          error: 'You can only view STAFF users in your department' 
+        }, 403);
+      }
+    }
+
+    // ADMIN can view any user
+    if (userType !== 'ADMIN' && userType !== 'Admin' && authUserId !== userId) {
+      // If not ADMIN, not HEAD with proper access, and not viewing own profile
+      if (userType === 'STAFF') {
+        return c.json({ 
+          success: false,
+          error: 'You can only view your own profile' 
+        }, 403);
+      }
+    }
+
+    // Convert avatar to absolute URL
+    const origin = new URL(c.req.url).origin;
+    const toAbsolute = (p?: string | null) => {
+      if (!p) return null;
+      if (p.startsWith('http://') || p.startsWith('https://') || p.startsWith('data:')) return p;
+      return `${origin}${p.startsWith('/') ? '' : '/'}${p}`;
+    };
+
+    return c.json({
+      ...user,
+      avatar: toAbsolute(user.avatar ?? null),
+    }, 200);
+
+  } catch (error) {
+    console.error('Error fetching user by ID:', error);
+    return c.json({ 
+      success: false,
+      error: 'Failed to fetch user',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, 500);
+  }
+};
+// for avatar upload
+export const uploadAvatar = async (c: Context) => {
+  try {
+    const userIdParam = c.req.param('id');
+    const userId = parseInt(userIdParam);
+    
+    if (isNaN(userId)) {
+      return c.json({ 
+        success: false,
+        error: 'Invalid user ID format' 
+      }, 400);
+    }
+
+    // Get authenticated user from context
+    const authUser = c.get("user");
+    const authUserId = authUser?.id;
+
+    // Users can only upload their own avatar (unless they're admin)
+    if (authUser?.userType !== 'ADMIN' && authUserId !== userId) {
+      return c.json({ 
+        success: false,
+        error: 'You can only update your own avatar' 
+      }, 403);
+    }
+
+    // Get the uploaded file from the request
+    const body = await c.req.parseBody();
+    const file = body['avatar'];
+
+    if (!file || !(file instanceof File)) {
+      return c.json({ 
+        success: false,
+        error: 'No file uploaded' 
+      }, 400);
+    }
+
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      return c.json({ 
+        success: false,
+        error: 'Invalid file type. Only JPG, PNG, GIF, and WebP are allowed.' 
+      }, 400);
+    }
+
+    // Validate file size (5MB max)
+    if (file.size > 5 * 1024 * 1024) {
+      return c.json({ 
+        success: false,
+        error: 'File size exceeds 5MB limit' 
+      }, 400);
+    }
+
+    // Create uploads directory if it doesn't exist
+    const uploadsDir = path.join(process.cwd(), 'uploads', 'avatars');
+    await fs.mkdir(uploadsDir, { recursive: true });
+
+    // Generate unique filename
+    const ext = path.extname(file.name);
+    const filename = `avatar_${userId}_${Date.now()}${ext}`;
+    const filepath = path.join(uploadsDir, filename);
+
+    // Save the file
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    await fs.writeFile(filepath, buffer);
+
+    // Get the user's old avatar to delete it
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { avatar: true }
+    });
+
+    // Delete old avatar if it exists and is not a default image
+    if (user?.avatar && !user.avatar.startsWith('data:') && !user.avatar.startsWith('http')) {
+      try {
+        const oldAvatarPath = path.join(process.cwd(), user.avatar.replace(/^\//, ''));
+        await fs.unlink(oldAvatarPath);
+      } catch (err) {
+        console.log('Could not delete old avatar:', err);
+      }
+    }
+
+    // Update user's avatar in database
+    const avatarUrl = `/uploads/avatars/${filename}`;
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { avatar: avatarUrl },
+      select: {
+        id: true,
+        avatar: true
+      }
+    });
+
+    const origin = new URL(c.req.url).origin;
+    const absoluteAvatarUrl = `${origin}${avatarUrl}`;
+
+    return c.json({
+      success: true,
+      message: 'Avatar uploaded successfully',
+      avatar: absoluteAvatarUrl
+    }, 200);
+
+  } catch (error) {
+    console.error('Error uploading avatar:', error);
+    return c.json({ 
+      success: false,
+      error: 'Failed to upload avatar',
       details: error instanceof Error ? error.message : 'Unknown error'
     }, 500);
   }
