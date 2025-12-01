@@ -9,14 +9,14 @@ interface EmailOptions {
   text?: string;
 }
 
-// Create the transporter once using config
+// Create the transporter once using environment variables
 const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 465,
+  host: process.env.SMTP_HOST || "smtp.gmail.com",
+  port: parseInt(process.env.SMTP_PORT || "465"),
   secure: true,
   auth: {
-    user: "pampangastateuniversity.noreply@gmail.com",
-    pass: "hglu jgsw jazg uolx", // your Gmail App Password
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASSWORD,
   },
   tls: {
     ciphers: "SSLv3",
@@ -24,16 +24,6 @@ const transporter = nodemailer.createTransport({
   },
   logger: true,
   debug: process.env.NODE_ENV !== "production",
-});
-
-
-// Add connection verification
-transporter.verify((error) => {
-  if (error) {
-    console.error("SMTP connection error:", error);
-  } else {
-    console.log("SMTP server is ready to take our messages");
-  }
 });
 
 // Add connection verification
@@ -74,17 +64,17 @@ async function sendVerificationEmail(
     }
 
     // 2. Construct verification URL with enhanced security
-const rawBaseUrl = config.app.baseUrl ?? '';
-const baseUrl = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
+    const rawBaseUrl = config.app.baseUrl ?? '';
+    const baseUrl = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
 
-const verificationUrl = `${baseUrl}/verify-email?token=${encodeURIComponent(token)}&userId=${encodeURIComponent(userId)}`;
-console.log('[Email Service] Verification URL:', verificationUrl);
+    const verificationUrl = `${baseUrl}/verify-email?token=${encodeURIComponent(token)}&userId=${encodeURIComponent(userId)}`;
+    console.log('[Email Service] Verification URL:', verificationUrl);
 
     // 3. Create Gmail-optimized email template
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 20px auto; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px;">
         <div style="background-color: #1a73e8; padding: 15px; border-radius: 8px 8px 0 0; margin: -20px -20px 20px -20px;">
-          <h2 style="color: white; margin: 0;">DHVSU Account Verification</h2>
+          <h2 style="color: white; margin: 0;">PSU Account Verification</h2>
         </div>
         
         <p style="font-size: 16px;">Please verify your email address to activate your PSU Management System account.</p>
@@ -102,7 +92,7 @@ console.log('[Email Service] Verification URL:', verificationUrl);
         
         <div style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #e0e0e0; font-size: 12px; color: #777;">
           <p>If you didn't request this, please ignore this email.</p>
-          <p>© ${new Date().getFullYear()} DHVSU Management System</p>
+          <p>© ${new Date().getFullYear()} PSU Management System</p>
         </div>
       </div>
     `;
@@ -111,14 +101,14 @@ console.log('[Email Service] Verification URL:', verificationUrl);
     const mailOptions = {
       from: `"${config.email.fromName}" <${config.email.fromAddress}>`,
       to: email,
-      subject: "Verify Your DHVSU Account",
+      subject: "Verify Your PSU Account",
       html: html,
-      text: `Please verify your DHVSU account by visiting:\n${verificationUrl}`,
+      text: `Please verify your PSU account by visiting:\n${verificationUrl}`,
       priority: "high" as "high",
       headers: {
         "X-Priority": "1",
-        "X-Mailer": "DHVSU Management System",
-        "X-Application": "DHVSU",
+        "X-Mailer": "Pampanga State University Mailer",
+        "X-Application": "PSU",
       },
       // Gmail-specific options
       dsn: {
