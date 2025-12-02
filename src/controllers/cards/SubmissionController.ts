@@ -358,3 +358,98 @@ export const getAllSubmissions = async (c: Context) => {
     return c.json({ error: 'Failed to fetch submissions' }, 500);
   }
 };
+
+export const getMySubmissions = async (c: Context) => {
+  try {
+    // --- 1. Authentication ---
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decoded = verifyToken(token) as { id: number };
+    const userId = decoded.id;
+
+    // --- 2. Check for 'recent' query parameter and set limit ---
+    const recentQuery = c.req.query('recent');
+    let limit: number | undefined = undefined;
+
+    // Check if the 'recent' query parameter is present (value doesn't strictly matter for truthiness)
+    if (recentQuery) {
+      // The frontend currently limits to 5, so we will set a default limit here.
+      limit = 5; 
+    }
+
+    // --- 3. Get submissions ---
+    const submissions = await prisma.submission.findMany({
+      where: {
+        userId: userId
+      },
+      include: {
+        card: {
+          include: {
+            // NOTE: I'm assuming 'files' is a relation on the Card model here.
+            // If the files are associated directly with the Submission model, this structure needs adjustment.
+            files: { 
+              select: { id: true }
+            }
+          }
+        },
+        department: true,
+        user: {
+          select: {
+            id: true,
+            first_name: true,
+            last_name: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      },
+      // Apply the limit if 'recent=true' was in the query
+      take: limit 
+    });
+
+    // --- 4. Transform data ---
+    const formattedSubmissions = submissions.map(submission => ({
+      id: submission.id,
+      title: submission.title,
+      description: submission.description || '',
+      submission_date: submission.createdAt.toISOString(),
+      // The status should ideally come from the submission record itself (e.g., submission.status)
+      // If the Submission model has a status field, use that instead of hardcoding 'PENDING'.
+      status: submission.status || 'PENDING', 
+      department: {
+        id: submission.department?.id || 0,
+        name: submission.department?.name || 'No Department'
+      },
+      cardType: {
+        id: submission.card?.id || submission.id,
+        // Assuming Card model uses 'name' or 'title' for the card name. Using 'title' as it was in the original context, but typically 'name' is preferred.
+        name: submission.card?.title || 'Card' 
+      },
+      submitted_by: {
+        id: submission.user.id,
+        first_name: submission.user.first_name,
+        last_name: submission.user.last_name
+      },
+      // Count files from the card
+      files_count: submission.card?.files?.length || 0,
+      last_updated: submission.updatedAt.toISOString()
+    }));
+
+    return c.json({
+      success: true,
+      data: formattedSubmissions
+    });
+
+  } catch (error) {
+    console.error('Error:', error);
+    return c.json({ 
+      success: false,
+      error: 'Failed to fetch submissions'
+    }, 500);
+  }
+};

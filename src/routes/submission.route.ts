@@ -1,14 +1,21 @@
 import { Hono } from 'hono';
-import { createCard, getAllCards, getCardById } from '../controllers/cards/CardController.js';
-import { createSubmission, getSubmissionsByCard, getFilesBySubmission, getSubmissionById, getAllSubmissions } from '../controllers/cards/SubmissionController.js';
+import { 
+  createSubmission, 
+  getSubmissionsByCard, 
+  getFilesBySubmission, 
+  getSubmissionById, 
+  getAllSubmissions,
+} from '../controllers/cards/SubmissionController.js';
+import { getMySubmissions } from '../controllers/cards/SubmissionController.js'; // Import the function
 
-const submissionRouter = new Hono()
+const submissionRouter = new Hono();
 
-// Add this route to get all submissions
-.get('/', getAllSubmissions) // 👈 ADD THIS LINE
-.get('/:id', getSubmissionsByCard)
-.post('/:id', createSubmission)
-.get('/:submissionId/files', getFilesBySubmission)
-.get('/details/:submissionId', getSubmissionById);
+submissionRouter
+  .get('/', getAllSubmissions)
+  .get('/my-submissions', getMySubmissions) // ✅ Add this line
+  .get('/:id', getSubmissionsByCard)
+  .post('/:id', createSubmission)
+  .get('/:submissionId/files', getFilesBySubmission)
+  .get('/details/:submissionId', getSubmissionById)
 
 export default submissionRouter;

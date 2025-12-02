@@ -181,6 +181,8 @@ export const signupController = async (c: Context) => {
         id: user.id,
         firstName: user.first_name,
         lastName: user.last_name,
+        first_name: user.first_name,  // ADD THIS
+        last_name: user.last_name,    // ADD THIS
         email: user.email,
         username: user.username,
         userType: user.user_type,
@@ -322,7 +324,7 @@ export const loginController = async (c: Context) => {
     }
 
     // 6. Prepare user data for token
-    const origin = new URL(c.req.url).origin;
+     const origin = new URL(c.req.url).origin;
     const toAbsolute = (p?: string | null) => {
       if (!p) return null;
       if (p.startsWith('http://') || p.startsWith('https://') || p.startsWith('data:')) return p;
@@ -333,9 +335,11 @@ export const loginController = async (c: Context) => {
       id: user.id,
       email: user.email,
       username: user.username,
-      userType: user.user_type, // Use userType to match middleware expectations
-      user_type: user.user_type, // Keep user_type for backward compatibility
+      userType: user.user_type,
+      user_type: user.user_type,
       name: `${user.first_name || ""} ${user.last_name || ""}`.trim(),
+      first_name: user.first_name, // ADD THIS
+      last_name: user.last_name,   // ADD THIS
       departmentId: user.department?.id ?? null,
       departmentName: user.department?.name ?? null,
       is_verified: user.is_verified,
