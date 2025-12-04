@@ -260,12 +260,13 @@ export const getCardById = async (c: Context) => {
         head: true,
         files: {
           include: {
-            user: {  // ← Make sure this is included
+            user: {
               select: {
                 id: true,
                 first_name: true,
                 last_name: true,
-                email: true
+                email: true,
+                avatar: true, // ← Add this line (NOT profile_picture)
               }
             }
           },
