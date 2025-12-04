@@ -249,12 +249,6 @@ export const getCardById = async (c: Context) => {
   try {
     const cardId = c.req.param('id');
     
-    if (!cardId) {
-      return c.json({ error: 'Card ID is required' }, 400);
-    }
-    
-    console.log('Fetching card with ID:', cardId);
-    
     const card = await prisma.card.findUnique({
       where: { id: Number(cardId) },
       include: {
@@ -263,22 +257,30 @@ export const getCardById = async (c: Context) => {
             department: true
           }
         },
-        files: true,
-        head: {
-          select: {
-            id: true,
-            first_name: true,
-            last_name: true,
-            email: true
+        head: true,
+        files: {
+          include: {
+            user: {  // ← Make sure this is included
+              select: {
+                id: true,
+                first_name: true,
+                last_name: true,
+                email: true
+              }
+            }
+          },
+          orderBy: {
+            createdAt: 'desc'
           }
-        }
+        },
+        // ... other includes
       }
     });
-
+    
     if (!card) {
       return c.json({ error: 'Card not found' }, 404);
     }
-
+    
     return c.json(card);
   } catch (error) {
     console.error('Error fetching card:', error);
