@@ -377,3 +377,88 @@ export const getCardAnalytics = async (c: Context) => {
     return c.json([]);
   }
 };
+
+export const getCardUsers = async (c: Context) => {
+  try {
+    const cardId = c.req.param('id');
+    
+    if (!cardId) {
+      return c.json({ error: 'Card ID is required' }, 400);
+    }
+
+    // Fetch card with departments and files
+    const card = await prisma.card.findUnique({
+      where: { id: parseInt(cardId) },
+      include: {
+        departments: {
+          include: {
+            department: {
+              include: {
+                users: true  // Changed from include: { profile: true }
+              }
+            }
+          }
+        },
+        files: {
+          include: {
+            user: true  // Changed from include: { profile: true }
+          }
+        }
+      }
+    });
+
+    if (!card) {
+      return c.json({ error: 'Card not found' }, 404);
+    }
+
+    // Get all unique users from associated departments
+    const allDepartmentUsers = [];
+    const seenUserIds = new Set();
+    
+    card.departments.forEach(dept => {
+      dept.department.users.forEach(user => {
+        if (!seenUserIds.has(user.id)) {
+          seenUserIds.add(user.id);
+          allDepartmentUsers.push(user);
+        }
+      });
+    });
+
+    // Get users who have submitted files
+    const submittedUserIds = new Set(card.files.map(file => file.userId));
+    
+    // Create user status array
+    const userStatus = allDepartmentUsers.map(user => ({
+      id: user.id,
+      // Use first_name and last_name instead of profile.name
+      name: user.first_name && user.last_name 
+        ? `${user.first_name} ${user.last_name}`
+        : user.first_name || user.last_name || user.username || user.email.split('@')[0],
+      email: user.email,
+      username: user.username,
+      user_type: user.user_type,
+      hasSubmitted: submittedUserIds.has(user.id),
+      submittedFileId: card.files.find(file => file.userId === user.id)?.id || null,
+      submittedAt: card.files.find(file => file.userId === user.id)?.createdAt || null
+    }));
+
+    // Sort users: submitted first, then by name
+    userStatus.sort((a, b) => {
+      if (a.hasSubmitted && !b.hasSubmitted) return -1;
+      if (!a.hasSubmitted && b.hasSubmitted) return 1;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+
+    return c.json({
+      cardId: card.id,
+      cardTitle: card.title,
+      totalUsers: allDepartmentUsers.length,
+      submittedCount: submittedUserIds.size,
+      pendingCount: allDepartmentUsers.length - submittedUserIds.size,
+      users: userStatus
+    });
+  } catch (error) {
+    console.error('Error fetching card users:', error);
+    return c.json({ error: 'Internal server error' }, 500);
+  }
+};

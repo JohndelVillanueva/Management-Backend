@@ -1,10 +1,10 @@
-// src/routes/card.routes.ts
 import { Hono } from 'hono';
 import { 
   createCard, 
   getAllCards, 
   getCardById, 
-  getDepartmentCards 
+  getDepartmentCards,
+  getCardUsers  // Add this import
 } from '../controllers/cards/CardController.js';
 import { getCardAnalytics } from '../controllers/cards/CardAnalyticsController.js';
 import { authMiddleware } from '../middlewares/authmiddleware.js';
@@ -16,7 +16,8 @@ cardRouter
   .post('/', authMiddleware, createCard)
   .get('/', getAllCards)
   .get('/department', authMiddleware, getDepartmentCards)
-  .get('/analytics', getCardAnalytics) // ✅ CORRECT ROUTE - /cards/analytics
-  .get('/:id', getCardById);
+  .get('/analytics', getCardAnalytics)
+  .get('/:id', getCardById)
+  .get('/:id/users', getCardUsers);  // Add this route
 
 export default cardRouter;
